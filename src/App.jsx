@@ -88,11 +88,7 @@ const blankEntry = () => ({
 });
 
 const migrate = p => {
-  // diary string → blocks
-  if (typeof p.diary==="string" && !p.diaryBlocks) {
-    p.diaryBlocks = p.diary.trim() ? [{id:"legacy",ts:null,text:p.diary}] : [];
-    delete p.diary;
-  }
+  if (!p || typeof p !== "object") return blankEntry();
   if (!p.diaryBlocks)      p.diaryBlocks      = [];
   if (!p.location)         p.location         = DEFAULT_LOCATION;
   // old single reading → books array
@@ -941,12 +937,9 @@ const ExportView = memo(({ entries, onImport }) => {
   const restoreDrive = async () => {
     setDL(true); setDS("Loading from Google Drive…");
     try {
-      const data = await loadFromDrive();
-      if(!data){ setDS("No backup found in Drive."); setDL(false); return; }
-      data.forEach(e=>{ if(e.date) localStorage.setItem(KEY+e.date, JSON.stringify(migrate({...e}))); });
-      onImport();
-      setDS(`✓ Restored ${data.length} entries. Your journal is back.`);
-    } catch(e){ setDS("✗ "+(e.error_description||e.message||"Restore failed.")); }
+      const raw = await loadFromDrive();
+      if (!raw) { setDS("No backup found in Drive."); setDL(false); return; }
+      const data = Array.isArray(raw) ? raw : Object.values(raw); catch(e){ setDS("✗ "+(e.error_description||e.message||"Restore failed.")); }
     finally { setDL(false); }
   };
 
