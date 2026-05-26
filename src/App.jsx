@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useCallback, memo } from "react";
 // 1. console.cloud.google.com → New project → Enable "Google Drive API"
 // 2. OAuth consent screen → External → add your Gmail as test user
 // 3. Credentials → OAuth 2.0 Client ID → Web app
-//    Authorised JS origin: https://claude.site
+//    Authorised JS origin: https://valuetimeovermoney.github.io
 // 4. Paste Client ID below — no backend or GitHub needed
 const GOOGLE_CLIENT_ID = "297234707517-i2v6cd84sj8ps75cj5lh500e67mlo06a.apps.googleusercontent.com";
 const DRIVE_FILE_NAME  = "my-journal-backup.json";
