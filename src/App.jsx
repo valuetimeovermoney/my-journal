@@ -1099,7 +1099,7 @@ export default function App() {
             <SearchView entries={entries} onSelect={selectDay}/>
           </div>
           <div style={{display:tab==="export"?"block":"none"}}>
-            <ExportView entries={entries}/>
+            <ExportView entries={entries} onImport={()=>{setEntries(allEntries());setEntry(load(selDate));}}/>
           </div>
         </div>
 
