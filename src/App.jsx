@@ -7,7 +7,7 @@ import { useState, useEffect, useRef, useCallback, memo } from "react";
 // 3. Credentials → OAuth 2.0 Client ID → Web app
 //    Authorised JS origin: https://claude.site
 // 4. Paste Client ID below — no backend or GitHub needed
-const GOOGLE_CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID_HERE";
+const GOOGLE_CLIENT_ID = "297234707517-i2v6cd84sj8ps75cj5lh500e67mlo06a.apps.googleusercontent.com";
 const DRIVE_FILE_NAME  = "my-journal-backup.json";
 const DRIVE_SCOPE      = "https://www.googleapis.com/auth/drive.appdata";
 
