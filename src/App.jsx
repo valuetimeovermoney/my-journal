@@ -767,21 +767,20 @@ const InvestNoteCard = memo(({ note, date, onSave, onDelete }) => {
 
 // ─── Investor Profile (persistent global, stored outside daily entries) ───────
 const INVESTOR_KEY   = "myjournal_investor";
-const loadInvestor   = () => { try{const r=localStorage.getItem(INVESTOR_KEY);return r?JSON.parse(r):{name:"",strategy:""};}catch{} return {name:"",strategy:""}; };
+const loadInvestor   = () => { try{const r=localStorage.getItem(INVESTOR_KEY);return r?JSON.parse(r):{name:"",strategy:"",website:""};}catch{} return {name:"",strategy:"",website:""}; };
 const saveInvestor   = d => localStorage.setItem(INVESTOR_KEY, JSON.stringify(d));
 
 const InvestorProfile = memo(() => {
   const [profile, setProfile] = useState(()=>loadInvestor());
-  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
   const update = useCallback((f,v)=>{
     const updated={...profile,[f]:v};
     setProfile(updated);
     saveInvestor(updated);
   },[profile]);
   return (
-    <div style={{background:"white",borderRadius:10,padding:"16px 18px",border:"1.5px solid #d8eed8",marginBottom:22}}>
+    <div style={{background:"white",borderRadius:10,padding:"16px 18px",border:"1.5px solid #d8eed8",marginBottom:14}}>
       <div style={{fontSize:10,color:"#5a9a60",textTransform:"uppercase",letterSpacing:"1.2px",marginBottom:14,fontWeight:500}}>Investor Profile</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:12}}>
         <div className="bf">
           <div className="bf-lbl">Name</div>
           <input className="bf-inp" value={profile.name} placeholder="Your name…" onChange={e=>update("name",e.target.value)}/>
@@ -790,6 +789,10 @@ const InvestorProfile = memo(() => {
           <div className="bf-lbl">Investment Strategy</div>
           <input className="bf-inp" value={profile.strategy} placeholder="e.g. Value investing, Growth…" onChange={e=>update("strategy",e.target.value)}/>
         </div>
+      </div>
+      <div className="bf">
+        <div className="bf-lbl">Website / Reference</div>
+        <input className="bf-inp" value={profile.website} placeholder="e.g. https://example.com or Bloomberg, Seeking Alpha…" onChange={e=>update("website",e.target.value)}/>
       </div>
     </div>
   );
@@ -1113,6 +1116,7 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
 
         <div className="section">
           <div className="sec-hd"><div className="sec-ic ic-invest">📈</div><div className="sec-ttl">Investing Notes</div><div className="sec-hint">thesis · ideas · observations</div></div>
+          <InvestorProfile/>
           <InvestingNotes notes={entry.investingNotes||[]} onChange={setInvestNotes}/>
         </div>
 
