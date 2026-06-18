@@ -77,10 +77,12 @@ const bookMins     = b => (b.sessions||[]).reduce((acc,s)=>acc+calcMins(s.startT
 
 // blank personal quote
 const blankMyQuote = () => ({ id:uid(), text:"", source:"", ts:nowTs() });
+const blankNote    = () => ({ id:uid(), ts:nowTs(), source:"", text:"" });
 
 const blankEntry = () => ({
   todos:            [{text:"",done:false}],
   diaryBlocks:      [],
+  notes:            [],
   gratitude:        ["","",""],
   weeklyReflection: "",
   location:         DEFAULT_LOCATION,
@@ -113,6 +115,7 @@ const migrate = p => {
   });
   if (!p.myQuotes)       p.myQuotes       = [];
   if (!p.investingNotes) p.investingNotes = [];
+  if (!p.notes)          p.notes          = [];
   if (!p.gratitude)      p.gratitude      = ["","",""];
   while (p.gratitude.length < 3) p.gratitude.push("");
   return p;
@@ -319,6 +322,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .db-del:hover{color:#e07070;}
 .db-ta{width:100%;border:none;outline:none;padding:8px 14px 14px;font-family:'Playfair Display',serif;font-size:15px;line-height:1.85;color:#1a1a1a;resize:none;background:transparent;min-height:80px;}
 .db-ta::placeholder{color:#ccc;font-style:italic;}
+
+/* ── notes (takeaways) ── */
+.note-block{background:white;border-radius:8px;border:1.5px solid transparent;transition:border-color .2s,box-shadow .2s;overflow:hidden;}
+.note-block:focus-within{border-color:#8a7acc30;box-shadow:0 2px 14px rgba(138,122,204,.08);}
+.note-src-bar{display:flex;align-items:center;gap:6px;padding:7px 14px 5px;background:#f7f5ff;border-bottom:1px solid #ede9f8;}
+.note-src-ic{font-size:11px;color:#9b8fd0;flex-shrink:0;}
+.note-src-inp{flex:1;border:none;outline:none;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:12px;color:#7a6aaa;background:transparent;}
+.note-src-inp::placeholder{color:#c8c0e0;}
+.note-ts-lbl{font-size:10px;color:#9b8fd0;font-weight:500;letter-spacing:.3px;flex-shrink:0;}
+.ic-notes{background:#EDE8F5;}
+.past-note-block{border-left:2px solid #9b8fd0;padding:6px 0 6px 14px;margin-bottom:10px;}
+.past-note-src{font-size:10px;color:#9b8fd0;font-weight:500;text-transform:uppercase;letter-spacing:.8px;margin-bottom:3px;}
+.past-note-txt{font-size:14px;font-weight:300;color:#333;line-height:1.7;white-space:pre-wrap;}
 
 /* ── investing notes ── */
 .inv-block{background:white;border-radius:8px;border:1.5px solid transparent;transition:border-color .2s,box-shadow .2s;overflow:hidden;}
@@ -718,6 +734,43 @@ const GratList = memo(({ items, onChange }) => (
   </div>
 ));
 
+// ─── Notes / Takeaways section ────────────────────────────────────────────────
+const NoteCard = memo(({ note, onChange, onDelete }) => {
+  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
+  return (
+    <div className="note-block">
+      <div className="note-src-bar">
+        <span className="note-src-ic">✎</span>
+        <input className="note-src-inp" value={note.source}
+          placeholder="Source — YouTube · Article · Podcast · Book · Conversation…"
+          onChange={e=>onChange({...note,source:e.target.value})}/>
+        <span className="note-ts-lbl">{note.ts?fmtTime(note.ts):""}</span>
+        <button className="db-del" style={{marginLeft:4}} onClick={onDelete}>×</button>
+      </div>
+      <textarea className="db-ta" style={{fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif",fontSize:14,fontStyle:"normal",fontWeight:300,lineHeight:1.75}}
+        value={note.text} placeholder="Key takeaway, insight, or idea…"
+        onChange={e=>{onChange({...note,text:e.target.value});grow(e.target);}}
+        onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+    </div>
+  );
+});
+
+const NotesSection = memo(({ notes, onChange }) => {
+  const add = useCallback(()=>onChange([...notes,blankNote()]),[notes,onChange]);
+  const upd = useCallback((id,updated)=>onChange(notes.map(n=>n.id===id?updated:n)),[notes,onChange]);
+  const del = useCallback(id=>onChange(notes.filter(n=>n.id!==id)),[notes,onChange]);
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {notes.map(n=>(
+        <NoteCard key={n.id} note={n} onChange={updated=>upd(n.id,updated)} onDelete={()=>del(n.id)}/>
+      ))}
+      <button className="add-row" onClick={add}>
+        {notes.length===0?"+ Add a note…":`+ Add another · ${new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true})}`}
+      </button>
+    </div>
+  );
+});
+
 // ─── InvestingNotes (daily write section) ─────────────────────────────────────
 const InvestingNotes = memo(({ notes, onChange }) => {
   const add = useCallback(()=>onChange([...notes,{id:uid(),ts:nowTs(),text:""}]),[notes,onChange]);
@@ -952,6 +1005,7 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
   const setReflect       = useCallback(v=>setEntry(e=>({...e,weeklyReflection:v})),[setEntry]);
   const setBooks         = useCallback(books=>setEntry(e=>({...e,books})),[setEntry]);
   const setMyQuotes      = useCallback(myQuotes=>setEntry(e=>({...e,myQuotes})),[setEntry]);
+  const setNotes         = useCallback(notes=>setEntry(e=>({...e,notes})),[setEntry]);
   const setInvestNotes   = useCallback(investingNotes=>setEntry(e=>({...e,investingNotes})),[setEntry]);
 
   const handleLocChange = useCallback(val=>{
@@ -1003,6 +1057,7 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
     const books   = entry.books||[];
     const quotes  = entry.myQuotes||[];
     const invNotes= entry.investingNotes||[];
+    const entNotes= entry.notes||[];
     return (
       <>
         <div className="pg-head">
@@ -1028,6 +1083,16 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
               ?blocks.filter(b=>b.text?.trim()).map(b=><div key={b.id} className="past-diary-block">{b.ts&&<div className="past-ts">{fmtTime(b.ts)}</div>}<div className="past-diary-txt">{b.text}</div></div>)
               :<div className="empty">No journal entry.</div>}
           </div>
+
+          {entNotes.filter(n=>n.text?.trim()).length>0&&<div className="past-sec">
+            <div className="past-lbl">Notes</div>
+            {entNotes.filter(n=>n.text?.trim()).map(n=>(
+              <div key={n.id} className="past-note-block">
+                {n.source&&<div className="past-note-src">{n.source}</div>}
+                <div className="past-note-txt">{n.text}</div>
+              </div>
+            ))}
+          </div>}
 
           {invNotes.filter(n=>n.text?.trim()).length>0&&<div className="past-sec">
             <div className="past-lbl">Investing Notes</div>
@@ -1139,6 +1204,11 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
         </div>
 
         <div className="section">
+          <div className="sec-hd"><div className="sec-ic ic-notes">✎</div><div className="sec-ttl">Notes</div><div className="sec-hint">takeaways · sources · ideas</div></div>
+          <NotesSection notes={entry.notes||[]} onChange={setNotes}/>
+        </div>
+
+        <div className="section">
           <div className="sec-hd"><div className="sec-ic ic-read">📖</div><div className="sec-ttl">Reading</div><div className="sec-hint">all books today</div></div>
           <ReadingTracker books={entry.books||[]} onChange={setBooks}/>
         </div>
@@ -1224,7 +1294,7 @@ const SearchView = memo(({ entries, onSelect }) => {
   const [q,setQ] = useState("");
   const results  = q.trim()
     ? entries.filter(e=>{
-        const blob=[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),e.location||"",...(e.books||[]).map(b=>`${b.title} ${b.author} ${b.notes}`),...(e.myQuotes||[]).map(q=>`${q.text} ${q.source}`),...(e.investingNotes||[]).map(n=>n.text||"")].join(" ").toLowerCase();
+        const blob=[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),e.location||"",...(e.books||[]).map(b=>`${b.title} ${b.author} ${b.notes}`),...(e.myQuotes||[]).map(q=>`${q.text} ${q.source}`),...(e.investingNotes||[]).map(n=>n.text||""),...(e.notes||[]).map(n=>`${n.source||""} ${n.text||""}`)].join(" ").toLowerCase();
         return blob.includes(q.toLowerCase());
       }).slice(0,20)
     : [];
@@ -1236,7 +1306,7 @@ const SearchView = memo(({ entries, onSelect }) => {
     const snip=(start>0?"…":"")+text.slice(start,idx+q.length+60)+(text.length>idx+q.length+60?"…":"");
     return snip.split(new RegExp(`(${q})`,"gi")).map((p,i)=>p.toLowerCase()===q.toLowerCase()?<mark key={i}>{p}</mark>:p);
   };
-  const blob=(e)=>[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),...(e.myQuotes||[]).map(q=>q.text||""),...(e.investingNotes||[]).map(n=>n.text||"")].join(" ");
+  const blob=(e)=>[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),...(e.myQuotes||[]).map(q=>q.text||""),...(e.investingNotes||[]).map(n=>n.text||""),...(e.notes||[]).map(n=>n.text||"")].join(" ");
   return (
     <div className="search-view">
       <div className="eyebrow">Search</div>
@@ -1274,12 +1344,13 @@ const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, driveCo
     const lines = entries.map(e=>{
       const todos  =(e.todos||[]).filter(t=>getTxt(t)).map(t=>`- [${getDone(t)?"x":" "}] ${getTxt(t)}`).join("\n");
       const story  =(e.diaryBlocks||[]).filter(b=>b.text?.trim()).map(b=>`${b.ts?`*${fmtTime(b.ts)}*\n\n`:""}${b.text}`).join("\n\n---\n\n");
+      const entNotes=(e.notes||[]).filter(n=>n.text?.trim()).map(n=>`${n.source?`**${n.source}**\n\n`:""}${n.text}`).join("\n\n---\n\n");
       const invest =(e.investingNotes||[]).filter(n=>n.text?.trim()).map(n=>`${n.ts?`*${fmtTime(n.ts)}*\n\n`:""}${n.text}`).join("\n\n---\n\n");
       const books  =(e.books||[]).filter(b=>b.title).map(b=>{const m=bookMins(b);const sess=(b.sessions||[]).filter(s=>s.startTime).map(s=>`${s.startTime}${s.endTime?`→${s.endTime}`:" (in progress)"}`).join(", ");return `📖 **${b.title}**${b.author?` — ${b.author}`:""}${sess?` · ${sess}`:""}${m>0?` (${fmtMins(m)})`:""}${b.notes?`\n\n> ${b.notes}`:""}`}).join("\n\n");
       const quotes =(e.myQuotes||[]).filter(q=>q.text?.trim()).map(q=>`> "${q.text}"${q.source?`\n> — ${q.source}`:""}`).join("\n\n");
       const grat   =(e.gratitude||[]).filter(g=>g?.trim()).map((g,i)=>`${i+1}. ${g}`).join("\n");
       const loc    = e.location?`📍 ${e.location}\n\n`:"";
-      return `# ${fmtDate(e.date)}\n\n${loc}## Focus\n${todos||"—"}\n\n## Journal\n${story||"—"}\n\n## Investing Notes\n${invest||"—"}\n\n## Reading\n${books||"—"}\n\n## Quotes\n${quotes||"—"}\n\n## Grateful For\n${grat||"—"}\n\n---`;
+      return `# ${fmtDate(e.date)}\n\n${loc}## Focus\n${todos||"—"}\n\n## Journal\n${story||"—"}\n\n## Notes\n${entNotes||"—"}\n\n## Investing Notes\n${invest||"—"}\n\n## Reading\n${books||"—"}\n\n## Quotes\n${quotes||"—"}\n\n## Grateful For\n${grat||"—"}\n\n---`;
     }).join("\n\n");
     dl(lines,"my-journal.md","text/markdown");
   };
