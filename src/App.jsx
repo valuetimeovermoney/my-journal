@@ -113,6 +113,8 @@ const migrate = p => {
   });
   if (!p.myQuotes)       p.myQuotes       = [];
   if (!p.investingNotes) p.investingNotes = [];
+  if (!p.gratitude)      p.gratitude      = ["","",""];
+  while (p.gratitude.length < 3) p.gratitude.push("");
   return p;
 };
 
@@ -772,6 +774,7 @@ const saveInvestor   = d => localStorage.setItem(INVESTOR_KEY, JSON.stringify(d)
 
 const InvestorProfile = memo(() => {
   const [profile, setProfile] = useState(()=>loadInvestor());
+  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
   const update = useCallback((f,v)=>{
     const updated={...profile,[f]:v};
     setProfile(updated);
@@ -786,13 +789,17 @@ const InvestorProfile = memo(() => {
           <input className="bf-inp" value={profile.name} placeholder="Your name…" onChange={e=>update("name",e.target.value)}/>
         </div>
         <div className="bf">
-          <div className="bf-lbl">Investment Strategy</div>
-          <input className="bf-inp" value={profile.strategy} placeholder="e.g. Value investing, Growth…" onChange={e=>update("strategy",e.target.value)}/>
+          <div className="bf-lbl">Website / Reference</div>
+          <input className="bf-inp" value={profile.website} placeholder="e.g. https://example.com" onChange={e=>update("website",e.target.value)}/>
         </div>
       </div>
       <div className="bf">
-        <div className="bf-lbl">Website / Reference</div>
-        <input className="bf-inp" value={profile.website} placeholder="e.g. https://example.com or Bloomberg, Seeking Alpha…" onChange={e=>update("website",e.target.value)}/>
+        <div className="bf-lbl">Investment Strategy</div>
+        <textarea className="bn-ta" value={profile.strategy}
+          placeholder="Describe your investment strategy — philosophy, focus areas, time horizon…"
+          onChange={e=>{update("strategy",e.target.value);grow(e.target);}}
+          onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}
+          style={{marginTop:4,minHeight:52}}/>
       </div>
     </div>
   );
