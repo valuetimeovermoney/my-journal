@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, memo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 
 // ─── Google OAuth ─────────────────────────────────────────────────────────────
 // Setup (5 min, one-time):
@@ -83,8 +83,9 @@ const blankEntry = () => ({
   gratitude:        ["",""],
   weeklyReflection: "",
   location:         DEFAULT_LOCATION,
-  books:            [],          // [{id,title,author,minutes,notes}]
-  myQuotes:         [],          // [{id,text,source,ts}]
+  books:            [],
+  myQuotes:         [],
+  investingNotes:   [],
 });
 
 const migrate = p => {
@@ -108,7 +109,8 @@ const migrate = p => {
     if (b.startTime === undefined) return { ...b, startTime:"", endTime:"" };
     return b;
   });
-  if (!p.myQuotes) p.myQuotes = [];
+  if (!p.myQuotes)       p.myQuotes       = [];
+  if (!p.investingNotes) p.investingNotes = [];
   return p;
 };
 
@@ -189,6 +191,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .sb-eprev{font-size:11px;color:#555;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .sb-foot{margin-top:auto;padding:14px 20px;border-top:1px solid #2a2a2a;font-size:10px;color:#444;line-height:1.6;}
 .sb-foot strong{color:#666;display:block;margin-bottom:2px;}
+.sb-sync-status{margin-top:6px;font-size:9px;color:#5a6a5a;font-style:italic;}
 
 /* ── topbar ── */
 .topbar{display:none;align-items:center;gap:12px;padding:13px 18px;background:#F5F0E8;border-bottom:1px solid #e8e2d8;position:sticky;top:0;z-index:15;flex-shrink:0;}
@@ -196,15 +199,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .hbg span{display:block;width:20px;height:1.5px;background:#1a1a1a;border-radius:2px;}
 .tb-title{font-family:'Playfair Display',serif;font-size:17px;font-weight:600;}
 .tb-date{font-size:11px;color:#aaa;margin-left:auto;}
+.tb-sync{background:none;border:1.5px solid #d0cfc0;border-radius:6px;padding:4px 9px;font-size:13px;color:#888;cursor:pointer;transition:all .2s;flex-shrink:0;line-height:1;}
+.tb-sync:hover:not(:disabled){border-color:#4285F4;color:#4285F4;}
+.tb-sync:disabled{opacity:.5;cursor:not-allowed;}
+.tb-sync.synced{border-color:#5a9a60;color:#5a9a60;}
+.tb-sync.error{border-color:#c05050;color:#c05050;}
 
 /* ── main ── */
 .main{flex:1;overflow-y:auto;display:flex;flex-direction:column;}
 
 /* ── desktop nav ── */
-.desk-nav{display:flex;gap:6px;flex-wrap:wrap;padding:20px 52px 0;max-width:760px;}
+.desk-nav{display:flex;gap:6px;flex-wrap:wrap;padding:20px 52px 0;max-width:760px;align-items:center;}
 .npill{padding:7px 16px;border:none;border-radius:20px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:12px;cursor:pointer;background:white;color:#888;transition:all .2s;}
 .npill.active{background:#1a1a1a;color:#F5F0E8;}
 .npill:hover:not(.active){background:#eee8de;}
+.sync-pill{margin-left:auto;background:none;border:1.5px solid #d0cfc0;color:#888;font-size:11px;}
+.sync-pill:hover:not(:disabled){border-color:#4285F4;color:#4285F4;background:white;}
+.sync-pill:disabled{opacity:.5;cursor:not-allowed;}
+.sync-pill.synced{border-color:#5a9a60;color:#5a9a60;background:#f0f8f0;}
+.sync-pill.error{border-color:#c05050;color:#c05050;}
 
 /* ── page head ── */
 .pg-head{padding:36px 52px 0;max-width:760px;}
@@ -226,6 +239,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .loc-inp{flex:1;border:none;outline:none;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:13px;font-weight:300;color:#555;background:transparent;}
 .loc-inp::placeholder{color:#ccc;}
 .loc-hint{font-size:10px;color:#ccc;}
+.loc-gps-btn{background:none;border:1.5px solid #e0d8cc;border-radius:5px;padding:3px 8px;font-size:12px;color:#aaa;cursor:pointer;transition:all .2s;flex-shrink:0;white-space:nowrap;}
+.loc-gps-btn:hover:not(:disabled){border-color:#C8A96E;color:#C8A96E;background:#C8A96E08;}
+.loc-gps-btn:disabled{opacity:.5;cursor:not-allowed;}
 
 /* ── stats ── */
 .stats-row{display:flex;gap:10px;flex-wrap:wrap;padding:14px 52px 0;max-width:760px;}
@@ -242,6 +258,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .sec-ic{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;}
 .ic-todo{background:#EDE8DE;} .ic-diary{background:#E2ECDB;} .ic-grat{background:#E4DBED;}
 .ic-ref{background:#DBE4ED;} .ic-read{background:#DBE8E8;} .ic-quote{background:#F0E8D8;}
+.ic-invest{background:#E2F0E3;}
 .sec-ttl{font-family:'Playfair Display',serif;font-size:17px;font-weight:600;}
 .sec-hint{font-size:10px;color:#bbb;margin-left:auto;}
 
@@ -268,6 +285,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .db-del:hover{color:#e07070;}
 .db-ta{width:100%;border:none;outline:none;padding:8px 14px 14px;font-family:'Playfair Display',serif;font-size:15px;line-height:1.85;color:#1a1a1a;resize:none;background:transparent;min-height:80px;}
 .db-ta::placeholder{color:#ccc;font-style:italic;}
+
+/* ── investing notes ── */
+.inv-block{background:white;border-radius:8px;border:1.5px solid transparent;transition:border-color .2s,box-shadow .2s;overflow:hidden;}
+.inv-block:focus-within{border-color:#5a9a6030;box-shadow:0 2px 14px rgba(90,154,96,.08);}
+.inv-db-ts{font-size:10px;color:#5a9a60;font-weight:500;letter-spacing:.3px;}
+.inv-ta{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:14px;font-weight:300;line-height:1.75;}
+
+/* ── investing consolidated view ── */
+.invest-view{padding:28px 52px 80px;max-width:760px;}
+.invest-entry-card{background:white;border-radius:10px;padding:18px;margin-bottom:16px;border:1.5px solid #e8f0e8;}
+.invest-entry-hd{margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #f0f6f0;}
+.invest-entry-date{font-family:'Playfair Display',serif;font-size:15px;font-weight:600;color:#1a1a1a;margin-bottom:2px;}
+.invest-entry-loc{font-size:11px;color:#8ababa;margin-top:2px;}
+.invest-note-card{padding-top:12px;margin-top:12px;border-top:1px solid #f0f6f0;}
+.invest-note-card:first-child{padding-top:0;margin-top:0;border-top:none;}
 
 /* ── reading tracker (multi-book) ── */
 .book-list{display:flex;flex-direction:column;gap:14px;}
@@ -340,7 +372,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .past-lbl{font-size:9px;text-transform:uppercase;letter-spacing:2px;color:#bbb;margin-bottom:10px;}
 .past-diary-block{margin-bottom:16px;}
 .past-ts{font-size:10px;color:#C8A96E;margin-bottom:4px;font-weight:500;}
+.past-inv-ts{font-size:10px;color:#5a9a60;margin-bottom:4px;font-weight:500;}
 .past-diary-txt{font-family:'Playfair Display',serif;font-size:15px;line-height:1.85;color:#333;white-space:pre-wrap;}
+.past-invest-txt{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:14px;font-weight:300;line-height:1.75;color:#333;white-space:pre-wrap;}
 .past-todo{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:300;color:#444;padding:4px 0;}
 .past-dot{width:5px;height:5px;border-radius:50%;background:#C8A96E;flex-shrink:0;}
 .past-todo.di{color:#bbb;text-decoration:line-through;}
@@ -355,6 +389,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .past-my-quote{border-left:2px solid #C8A96E;padding:8px 0 8px 14px;margin-bottom:10px;}
 .pmq-text{font-family:'Playfair Display',serif;font-style:italic;font-size:14px;color:#333;line-height:1.7;margin-bottom:4px;}
 .pmq-src{font-size:11px;color:#aaa;}
+.past-invest-block{border-left:2px solid #5a9a60;padding:6px 0 6px 14px;margin-bottom:10px;}
 .empty{color:#ccc;font-style:italic;font-family:'Playfair Display',serif;font-size:14px;}
 
 /* ── month view ── */
@@ -370,7 +405,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .cal-day.today{box-shadow:0 0 0 2px #C8A96E;} .cal-day.sel{background:#C8A96E;color:#1a1a1a;} .cal-day.empty{background:transparent;}
 .cal-dots{display:flex;gap:2px;margin-top:2px;}
 .cal-dot{width:4px;height:4px;border-radius:50%;}
-.dot-d{background:#C8A96E;} .dot-g{background:#c0b0d0;} .dot-r{background:#8ababa;} .dot-q{background:#e8c878;}
+.dot-d{background:#C8A96E;} .dot-g{background:#c0b0d0;} .dot-r{background:#8ababa;} .dot-q{background:#e8c878;} .dot-i{background:#5a9a60;}
 .streak-note{margin-top:18px;font-size:12px;color:#aaa;font-weight:300;}
 .streak-note strong{color:#1a1a1a;}
 
@@ -409,7 +444,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 /* ── bottom nav ── */
 .bot-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:white;border-top:1px solid #e8e2d8;padding:8px 0 env(safe-area-inset-bottom,8px);z-index:40;}
 .bn-items{display:flex;justify-content:space-around;}
-.bn-item{display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;cursor:pointer;padding:4px 8px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:.8px;transition:color .2s;}
+.bn-item{display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;cursor:pointer;padding:4px 6px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:.8px;transition:color .2s;}
 .bn-item.active,.bn-item:hover{color:#C8A96E;}
 .bn-ico{font-size:17px;line-height:1;}
 
@@ -425,7 +460,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .topbar{display:flex;}
   .desk-nav{display:none;}
   .bot-nav{display:block;}
-  .pg-head,.insp-bar,.loc-bar,.stats-row,.content,.past-wrap,.month-view,.search-view,.export-view{padding-left:18px;padding-right:18px;}
+  .pg-head,.insp-bar,.loc-bar,.stats-row,.content,.past-wrap,.month-view,.search-view,.export-view,.invest-view{padding-left:18px;padding-right:18px;}
   .insp-bar,.loc-bar{margin-left:18px;margin-right:18px;}
   .pg-head{padding-top:18px;}
   .pg-title{font-size:26px;}
@@ -437,7 +472,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-const Sidebar = memo(({ open, entries, selectedDate, today, onSelect, onToday }) => (
+const Sidebar = memo(({ open, entries, selectedDate, today, onSelect, onToday, lastSync }) => (
   <div className={`sidebar${open?" open":""}`}>
     <div className="sb-head">
       <div className="sb-logo">My Journal</div>
@@ -458,7 +493,8 @@ const Sidebar = memo(({ open, entries, selectedDate, today, onSelect, onToday })
     <div className="sb-foot">
       <strong>📦 Storage</strong>
       Browser local storage on this device.<br/>
-      Use Drive sync or JSON export to back up and access from your laptop.
+      Use Drive sync or JSON export to back up and sync to your phone.
+      {lastSync&&<div className="sb-sync-status">Last synced: {lastSync}</div>}
     </div>
   </div>
 ));
@@ -626,26 +662,152 @@ const GratList = memo(({ items, onChange }) => (
   </div>
 ));
 
+// ─── InvestingNotes (daily write section) ─────────────────────────────────────
+const InvestingNotes = memo(({ notes, onChange }) => {
+  const add = useCallback(()=>onChange([...notes,{id:uid(),ts:nowTs(),text:""}]),[notes,onChange]);
+  const upd = useCallback((id,text)=>onChange(notes.map(n=>n.id===id?{...n,text}:n)),[notes,onChange]);
+  const del = useCallback(id=>onChange(notes.filter(n=>n.id!==id)),[notes,onChange]);
+  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
+  return (
+    <div className="diary-blocks">
+      {notes.map(n=>(
+        <div key={n.id} className="inv-block">
+          <div className="db-meta">
+            <span className="inv-db-ts">{n.ts?fmtTime(n.ts):"earlier"}</span>
+            <button className="db-del" onClick={()=>del(n.id)}>×</button>
+          </div>
+          <textarea className="db-ta inv-ta" value={n.text} placeholder="Investment thesis, market observations, stock notes…"
+            onChange={e=>{upd(n.id,e.target.value);grow(e.target);}}
+            onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+        </div>
+      ))}
+      <button className="add-row" onClick={add}>
+        {notes.length===0?"+ Add an investing note…":`+ Add another · ${new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true})}`}
+      </button>
+    </div>
+  );
+});
+
+// ─── InvestNoteCard (editable card in consolidated view) ──────────────────────
+const InvestNoteCard = memo(({ note, date, onSave, onDelete }) => {
+  const [text, setText] = useState(note.text);
+  const timer = useRef(null);
+  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
+
+  const handleChange = val => {
+    setText(val);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(()=>onSave(date,note.id,val),700);
+  };
+
+  return (
+    <div className="invest-note-card">
+      <div className="db-meta" style={{padding:"0 0 6px"}}>
+        <span className="inv-db-ts">{note.ts?fmtTime(note.ts):"earlier"}</span>
+        <button className="db-del" onClick={()=>onDelete(date,note.id)}>×</button>
+      </div>
+      <textarea className="db-ta inv-ta" value={text}
+        onChange={e=>{handleChange(e.target.value);grow(e.target);}}
+        onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}
+        placeholder="Investment thoughts…"/>
+    </div>
+  );
+});
+
+// ─── InvestingView (consolidated all-notes view) ──────────────────────────────
+const InvestingView = memo(({ onAddToday }) => {
+  const [tick, setTick] = useState(0);
+  const entriesWithNotes = useMemo(()=>
+    allEntries().filter(e=>(e.investingNotes||[]).some(n=>n.text?.trim()))
+  ,[tick]);
+
+  const saveNote = useCallback((date,noteId,text)=>{
+    const e = load(date);
+    save(date,{...e,investingNotes:(e.investingNotes||[]).map(n=>n.id===noteId?{...n,text}:n)});
+  },[]);
+
+  const deleteNote = useCallback((date,noteId)=>{
+    const e = load(date);
+    save(date,{...e,investingNotes:(e.investingNotes||[]).filter(n=>n.id!==noteId)});
+    setTick(t=>t+1);
+  },[]);
+
+  return (
+    <div className="invest-view">
+      <div className="eyebrow">Investing</div>
+      <h1 className="pg-title">My <em>Investing</em> Notes</h1>
+      <p style={{fontSize:13,color:"#aaa",fontWeight:300,marginTop:6,marginBottom:20}}>
+        All your investing notes in one place — editable here or from any daily entry.
+      </p>
+
+      <button className="add-row" style={{marginBottom:24}} onClick={onAddToday}>
+        📈 Add investing note for today
+      </button>
+
+      {entriesWithNotes.length===0&&(
+        <div className="empty">No investing notes yet. Use the button above to start tracking your investment thoughts.</div>
+      )}
+
+      {entriesWithNotes.map(entry=>(
+        <div key={entry.date} className="invest-entry-card">
+          <div className="invest-entry-hd">
+            <div className="invest-entry-date">
+              {fmtDate(entry.date,{weekday:"short",month:"long",day:"numeric",year:"numeric"})}
+            </div>
+            {entry.location&&<div className="invest-entry-loc">📍 {entry.location}</div>}
+          </div>
+          {(entry.investingNotes||[]).filter(n=>n.text?.trim()).map(note=>(
+            <InvestNoteCard key={note.id} note={note} date={entry.date} onSave={saveNote} onDelete={deleteNote}/>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+});
+
 // ─── WriteView ────────────────────────────────────────────────────────────────
 const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditMode, stats }) => {
   const isToday = selectedDate === today;
   const show    = isEdit || isToday;
 
-  const setTodos    = useCallback(todos=>setEntry(e=>({...e,todos})),[setEntry]);
-  const setBlocks   = useCallback(diaryBlocks=>setEntry(e=>({...e,diaryBlocks})),[setEntry]);
-  const setGrat     = useCallback(gratitude=>setEntry(e=>({...e,gratitude})),[setEntry]);
-  const setLoc      = useCallback(location=>setEntry(e=>({...e,location})),[setEntry]);
-  const setReflect  = useCallback(v=>setEntry(e=>({...e,weeklyReflection:v})),[setEntry]);
-  const setBooks    = useCallback(books=>setEntry(e=>({...e,books})),[setEntry]);
-  const setMyQuotes = useCallback(myQuotes=>setEntry(e=>({...e,myQuotes})),[setEntry]);
+  const [locLoading, setLocLoading] = useState(false);
+
+  const setTodos         = useCallback(todos=>setEntry(e=>({...e,todos})),[setEntry]);
+  const setBlocks        = useCallback(diaryBlocks=>setEntry(e=>({...e,diaryBlocks})),[setEntry]);
+  const setGrat          = useCallback(gratitude=>setEntry(e=>({...e,gratitude})),[setEntry]);
+  const setLoc           = useCallback(location=>setEntry(e=>({...e,location})),[setEntry]);
+  const setReflect       = useCallback(v=>setEntry(e=>({...e,weeklyReflection:v})),[setEntry]);
+  const setBooks         = useCallback(books=>setEntry(e=>({...e,books})),[setEntry]);
+  const setMyQuotes      = useCallback(myQuotes=>setEntry(e=>({...e,myQuotes})),[setEntry]);
+  const setInvestNotes   = useCallback(investingNotes=>setEntry(e=>({...e,investingNotes})),[setEntry]);
+
+  const detectLoc = useCallback(()=>{
+    if(!navigator.geolocation){return;}
+    setLocLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async pos=>{
+        try{
+          const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&zoom=10&accept-language=en`);
+          const d=await r.json();
+          const city=d.address?.city||d.address?.town||d.address?.village||d.address?.county||"";
+          const region=d.address?.state||d.address?.country||"";
+          setLoc([city,region].filter(Boolean).join(", ")||"Location found");
+        }catch{setLoc("Location found");}
+        setLocLoading(false);
+      },
+      ()=>setLocLoading(false),
+      {timeout:8000}
+    );
+  },[setLoc]);
 
   // ── past read-only view ────────────────────────────────────────────────────
   if (!show) {
-    const todos  = entry.todos||[];
-    const blocks = entry.diaryBlocks||[];
-    const grat   = entry.gratitude||[];
-    const books  = entry.books||[];
-    const quotes = entry.myQuotes||[];
+    const todos   = entry.todos||[];
+    const blocks  = entry.diaryBlocks||[];
+    const grat    = entry.gratitude||[];
+    const books   = entry.books||[];
+    const quotes  = entry.myQuotes||[];
+    const invNotes= entry.investingNotes||[];
     return (
       <>
         <div className="pg-head">
@@ -671,6 +833,16 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
               ?blocks.filter(b=>b.text?.trim()).map(b=><div key={b.id} className="past-diary-block">{b.ts&&<div className="past-ts">{fmtTime(b.ts)}</div>}<div className="past-diary-txt">{b.text}</div></div>)
               :<div className="empty">No journal entry.</div>}
           </div>
+
+          {invNotes.filter(n=>n.text?.trim()).length>0&&<div className="past-sec">
+            <div className="past-lbl">Investing Notes</div>
+            {invNotes.filter(n=>n.text?.trim()).map(n=>(
+              <div key={n.id} className="past-invest-block">
+                {n.ts&&<div className="past-inv-ts">{fmtTime(n.ts)}</div>}
+                <div className="past-invest-txt">{n.text}</div>
+              </div>
+            ))}
+          </div>}
 
           {books.filter(b=>b.title).length>0&&<div className="past-sec">
             <div className="past-lbl">Reading</div>
@@ -732,6 +904,9 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
       <div className="loc-bar" style={{margin:"10px 52px 0"}}>
         <span style={{color:"#C8A96E",flexShrink:0}}>📍</span>
         <input className="loc-inp" value={entry.location||DEFAULT_LOCATION} placeholder="Where are you today?" onChange={e=>setLoc(e.target.value)}/>
+        <button className="loc-gps-btn" onClick={detectLoc} disabled={locLoading} title="Detect my location automatically">
+          {locLoading?"…":"⌖ GPS"}
+        </button>
         <span className="loc-hint">location</span>
       </div>
 
@@ -751,6 +926,11 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
         <div className="section">
           <div className="sec-hd"><div className="sec-ic ic-diary">✦</div><div className="sec-ttl">Today's Journal</div><div className="sec-hint">timestamped</div></div>
           <JournalBlocks blocks={entry.diaryBlocks} onChange={setBlocks}/>
+        </div>
+
+        <div className="section">
+          <div className="sec-hd"><div className="sec-ic ic-invest">📈</div><div className="sec-ttl">Investing Notes</div><div className="sec-hint">thesis · ideas · observations</div></div>
+          <InvestingNotes notes={entry.investingNotes||[]} onChange={setInvestNotes}/>
         </div>
 
         <div className="section">
@@ -800,8 +980,8 @@ const MonthView = memo(({ calMonth, setCalMonth, entrySet, selectedDate, today, 
           if(!d) return <div key={`e${i}`} className="cal-day empty"/>;
           const k=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
           const has=entrySet.has(k);
-          let hasDiary=false,hasGrat=false,hasRead=false,hasQuote=false;
-          if(has){try{const e=JSON.parse(localStorage.getItem(KEY+k)||"{}");hasDiary=!!(e.diaryBlocks?.some(b=>b.text?.trim())||e.diary?.trim());hasGrat=e.gratitude?.some(g=>g?.trim());hasRead=(e.books||[]).some(b=>b.title);hasQuote=(e.myQuotes||[]).some(q=>q.text?.trim());}catch{}}
+          let hasDiary=false,hasGrat=false,hasRead=false,hasQuote=false,hasInvest=false;
+          if(has){try{const e=JSON.parse(localStorage.getItem(KEY+k)||"{}");hasDiary=!!(e.diaryBlocks?.some(b=>b.text?.trim())||e.diary?.trim());hasGrat=e.gratitude?.some(g=>g?.trim());hasRead=(e.books||[]).some(b=>b.title);hasQuote=(e.myQuotes||[]).some(q=>q.text?.trim());hasInvest=(e.investingNotes||[]).some(n=>n.text?.trim());}catch{}}
           return (
             <div key={k} className={`cal-day${has?" has":""}${k===today?" today":""}${k===selectedDate?" sel":""}`} onClick={()=>{if(has)onSelect(k);}}>
               {d}
@@ -810,6 +990,7 @@ const MonthView = memo(({ calMonth, setCalMonth, entrySet, selectedDate, today, 
                 {hasGrat&&<div className="cal-dot dot-g"/>}
                 {hasRead&&<div className="cal-dot dot-r"/>}
                 {hasQuote&&<div className="cal-dot dot-q"/>}
+                {hasInvest&&<div className="cal-dot dot-i"/>}
               </div>}
             </div>
           );
@@ -820,6 +1001,7 @@ const MonthView = memo(({ calMonth, setCalMonth, entrySet, selectedDate, today, 
         <span><span style={{color:"#c0b0d0"}}>●</span> gratitude</span>
         <span><span style={{color:"#8ababa"}}>●</span> reading</span>
         <span><span style={{color:"#e8c878"}}>●</span> quotes</span>
+        <span><span style={{color:"#5a9a60"}}>●</span> investing</span>
       </div>
       <div className="streak-note">Current streak: <strong>{streak} {streak===1?"day":"days"}</strong> · Total: <strong>{totalDays} {totalDays===1?"entry":"entries"}</strong></div>
     </div>
@@ -831,7 +1013,7 @@ const SearchView = memo(({ entries, onSelect }) => {
   const [q,setQ] = useState("");
   const results  = q.trim()
     ? entries.filter(e=>{
-        const blob=[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),e.location||"",...(e.books||[]).map(b=>`${b.title} ${b.author} ${b.notes}`),...(e.myQuotes||[]).map(q=>`${q.text} ${q.source}`)].join(" ").toLowerCase();
+        const blob=[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),e.location||"",...(e.books||[]).map(b=>`${b.title} ${b.author} ${b.notes}`),...(e.myQuotes||[]).map(q=>`${q.text} ${q.source}`),...(e.investingNotes||[]).map(n=>n.text||"")].join(" ").toLowerCase();
         return blob.includes(q.toLowerCase());
       }).slice(0,20)
     : [];
@@ -843,14 +1025,14 @@ const SearchView = memo(({ entries, onSelect }) => {
     const snip=(start>0?"…":"")+text.slice(start,idx+q.length+60)+(text.length>idx+q.length+60?"…":"");
     return snip.split(new RegExp(`(${q})`,"gi")).map((p,i)=>p.toLowerCase()===q.toLowerCase()?<mark key={i}>{p}</mark>:p);
   };
-  const blob=(e)=>[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),...(e.myQuotes||[]).map(q=>q.text||"")].join(" ");
+  const blob=(e)=>[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),...(e.myQuotes||[]).map(q=>q.text||""),...(e.investingNotes||[]).map(n=>n.text||"")].join(" ");
   return (
     <div className="search-view">
       <div className="eyebrow">Search</div>
       <h1 className="pg-title">Find a <em>moment</em></h1>
       <div style={{height:20}}/>
       <div className="sb-wrap">
-        <input className="sb-inp" value={q} placeholder="Search journal, books, quotes, locations…" onChange={e=>setQ(e.target.value)} autoFocus/>
+        <input className="sb-inp" value={q} placeholder="Search journal, investing notes, books, quotes, locations…" onChange={e=>setQ(e.target.value)} autoFocus/>
         <span className="sb-ico">⌕</span>
       </div>
       {q&&!results.length&&<div className="no-res">Nothing found for "{q}"</div>}
@@ -865,10 +1047,8 @@ const SearchView = memo(({ entries, onSelect }) => {
 });
 
 // ─── ExportView ───────────────────────────────────────────────────────────────
-const ExportView = memo(({ entries, onImport }) => {
-  const [driveStatus,  setDS]      = useState("");
-  const [driveLoading, setDL]      = useState(false);
-  const [importMsg,    setImportMsg] = useState("");
+const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, onSyncDrive, onRestoreDrive }) => {
+  const [importMsg, setImportMsg] = useState("");
   const fileRef = useRef();
   const configured = GOOGLE_CLIENT_ID !== "YOUR_GOOGLE_CLIENT_ID_HERE";
 
@@ -883,11 +1063,12 @@ const ExportView = memo(({ entries, onImport }) => {
     const lines = entries.map(e=>{
       const todos  =(e.todos||[]).filter(t=>getTxt(t)).map(t=>`- [${getDone(t)?"x":" "}] ${getTxt(t)}`).join("\n");
       const story  =(e.diaryBlocks||[]).filter(b=>b.text?.trim()).map(b=>`${b.ts?`*${fmtTime(b.ts)}*\n\n`:""}${b.text}`).join("\n\n---\n\n");
-      const books  =(e.books||[]).filter(b=>b.title).map(b=>{const m=calcMins(b.startTime,b.endTime);return `📖 **${b.title}**${b.author?` — ${b.author}`:""}${b.startTime?` · ${b.startTime}${b.endTime?`→${b.endTime}`:" (in progress"}`:""}${m>0?` (${fmtMins(m)})`:""}${b.notes?`\n\n> ${b.notes}`:""}`}).join("\n\n");
+      const invest =(e.investingNotes||[]).filter(n=>n.text?.trim()).map(n=>`${n.ts?`*${fmtTime(n.ts)}*\n\n`:""}${n.text}`).join("\n\n---\n\n");
+      const books  =(e.books||[]).filter(b=>b.title).map(b=>{const m=calcMins(b.startTime,b.endTime);return `📖 **${b.title}**${b.author?` — ${b.author}`:""}${b.startTime?` · ${b.startTime}${b.endTime?`→${b.endTime}`:" (in progress)"}`:""}${m>0?` (${fmtMins(m)})`:""}${b.notes?`\n\n> ${b.notes}`:""}`}).join("\n\n");
       const quotes =(e.myQuotes||[]).filter(q=>q.text?.trim()).map(q=>`> "${q.text}"${q.source?`\n> — ${q.source}`:""}`).join("\n\n");
       const grat   =(e.gratitude||[]).filter(g=>g?.trim()).map((g,i)=>`${i+1}. ${g}`).join("\n");
       const loc    = e.location?`📍 ${e.location}\n\n`:"";
-      return `# ${fmtDate(e.date)}\n\n${loc}## Focus\n${todos||"—"}\n\n## Journal\n${story||"—"}\n\n## Reading\n${books||"—"}\n\n## Quotes\n${quotes||"—"}\n\n## Grateful For\n${grat||"—"}\n\n---`;
+      return `# ${fmtDate(e.date)}\n\n${loc}## Focus\n${todos||"—"}\n\n## Journal\n${story||"—"}\n\n## Investing Notes\n${invest||"—"}\n\n## Reading\n${books||"—"}\n\n## Quotes\n${quotes||"—"}\n\n## Grateful For\n${grat||"—"}\n\n---`;
     }).join("\n\n");
     dl(lines,"my-journal.md","text/markdown");
   };
@@ -919,28 +1100,12 @@ const ExportView = memo(({ entries, onImport }) => {
         });
         onImport();
         setImportMsg(`✓ Restored ${count} entries successfully.`);
-      } catch(err) {
+      } catch {
         setImportMsg("✗ Could not read that file. Make sure it's a journal JSON backup.");
       }
     };
     reader.readAsText(file);
     e.target.value = "";
-  };
-
-  const syncDrive = async () => {
-    setDL(true); setDS("Connecting to Google Drive…");
-    try { await saveToDrive(entries); setDS("✓ Synced to Drive — "+new Date().toLocaleTimeString()); }
-    catch(e){ setDS("✗ "+(e.error_description||e.message||"Sync failed. Check your Client ID.")); }
-    finally { setDL(false); }
-  };
-
-  const restoreDrive = async () => {
-    setDL(true); setDS("Loading from Google Drive…");
-    try {
-      const raw = await loadFromDrive();
-      if (!raw) { setDS("No backup found in Drive."); setDL(false); return; }
-      const data = Array.isArray(raw) ? raw : Object.values(raw); catch(e){ setDS("✗ "+(e.error_description||e.message||"Restore failed.")); }
-    finally { setDL(false); }
   };
 
   return (
@@ -951,34 +1116,25 @@ const ExportView = memo(({ entries, onImport }) => {
 
       {/* ── Why data disappears ── */}
       <div className="ex-card" style={{background:"#fff8e8",border:"1.5px solid #e8d8a0"}}>
-        <h3 style={{fontSize:14,color:"#a07820"}}>⚠️ Important — read this first</h3>
+        <h3 style={{fontSize:14,color:"#a07820"}}>⚠️ Sync between phone and computer</h3>
         <p style={{color:"#806010"}}>
-          This app runs inside Claude's sandbox. <strong>Each time you open the link, it's a fresh environment</strong> — your data doesn't automatically carry over between sessions.<br/><br/>
-          <strong>Your options:</strong><br/>
-          1. <strong>Download JSON</strong> after every session → upload it back next time using "Restore from file"<br/>
-          2. <strong>Set up Google Drive sync</strong> (one-time) — saves and restores with one tap<br/>
-          3. <strong>Deploy as your own app</strong> (10 min, free) — permanent URL, data always there. Ask me to help.
+          Each device has its own storage — entries written on your computer won't appear on your phone until you sync.<br/><br/>
+          <strong>To sync (e.g. get June 8 on your phone):</strong><br/>
+          1. On your <strong>computer</strong>: tap ☁ Save to Drive below<br/>
+          2. On your <strong>phone</strong>: open the app → Export tab → tap ↓ Restore from Drive<br/><br/>
+          <strong>Or use JSON:</strong> Download on computer → upload on phone.
         </p>
-      </div>
-
-      {/* ── Restore from file ── */}
-      <div className="ex-card" style={{border:"1.5px solid #C8A96E40"}}>
-        <h3>📂 Restore from file</h3>
-        <p>Have a JSON backup from a previous session? Load it here and all your entries come back instantly.</p>
-        <input ref={fileRef} type="file" accept=".json" style={{display:"none"}} onChange={handleImport}/>
-        <button className="ex-btn pri" onClick={()=>fileRef.current.click()}>↑ Load backup file</button>
-        {importMsg && <div style={{marginTop:10,fontSize:12,color:importMsg.startsWith("✓")?"#4a9a4a":"#c05050",padding:"8px 12px",background:"white",borderRadius:6,border:"1px solid #e0e0e0"}}>{importMsg}</div>}
       </div>
 
       {/* ── Google Drive ── */}
       <div className="drive-card">
         <h3>☁️ Google Drive Sync</h3>
-        <p>One-tap backup and restore. Set it up once and your journal is safe across any device or session.</p>
+        <p>One-tap backup and restore. Syncs all entries across any device. Also available via the ☁ button in the top bar.</p>
         {configured?(
           <>
             <div className="drive-btns">
-              <button className="ex-btn goog" onClick={syncDrive} disabled={driveLoading}>{driveLoading?"…":"☁"} Save to Drive</button>
-              <button className="ex-btn goog-o" onClick={restoreDrive} disabled={driveLoading}>↓ Restore from Drive</button>
+              <button className="ex-btn goog" onClick={onSyncDrive} disabled={driveLoading}>{driveLoading?"…":"☁"} Save to Drive</button>
+              <button className="ex-btn goog-o" onClick={onRestoreDrive} disabled={driveLoading}>↓ Restore from Drive</button>
             </div>
             {driveStatus&&<div className="drive-status">{driveStatus}</div>}
           </>
@@ -994,13 +1150,22 @@ const ExportView = memo(({ entries, onImport }) => {
         )}
       </div>
 
+      {/* ── Restore from file ── */}
+      <div className="ex-card" style={{border:"1.5px solid #C8A96E40"}}>
+        <h3>📂 Restore from file</h3>
+        <p>Have a JSON backup from a previous session? Load it here and all your entries come back instantly.</p>
+        <input ref={fileRef} type="file" accept=".json" style={{display:"none"}} onChange={handleImport}/>
+        <button className="ex-btn pri" onClick={()=>fileRef.current.click()}>↑ Load backup file</button>
+        {importMsg && <div style={{marginTop:10,fontSize:12,color:importMsg.startsWith("✓")?"#4a9a4a":"#c05050",padding:"8px 12px",background:"white",borderRadius:6,border:"1px solid #e0e0e0"}}>{importMsg}</div>}
+      </div>
+
       {/* ── Download options ── */}
       <div className="ex-card">
         <h3>💾 Download JSON backup</h3>
         <p>Download your full journal as a file. <strong>Do this at the end of every session</strong> until you have Drive sync set up.</p>
         <button className="ex-btn pri" onClick={dlJson}>Download .json</button>
       </div>
-      <div className="ex-card"><h3>Markdown</h3><p>All entries — journals, books, quotes, gratitude — as a .md file. Great for Obsidian, Notion, or a future book.</p><button className="ex-btn sec" onClick={dlMd}>Download .md</button></div>
+      <div className="ex-card"><h3>Markdown</h3><p>All entries — journals, investing notes, books, quotes, gratitude — as a .md file. Great for Obsidian, Notion, or a future book.</p><button className="ex-btn sec" onClick={dlMd}>Download .md</button></div>
       <div className="ex-card"><h3>Substack / Blog</h3><p>Journal entries + quotes, formatted for Substack.</p><button className="ex-btn sec" onClick={dlSub}>Download for Substack</button></div>
     </div>
   );
@@ -1008,10 +1173,11 @@ const ExportView = memo(({ entries, onImport }) => {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 const NAVS = [
-  {key:"write",icon:"✦",label:"Write"},
-  {key:"month",icon:"◫",label:"Month"},
-  {key:"search",icon:"⌕",label:"Search"},
-  {key:"export",icon:"↗",label:"Export"},
+  {key:"write",  icon:"✦",  label:"Write"},
+  {key:"month",  icon:"◫",  label:"Month"},
+  {key:"search", icon:"⌕",  label:"Search"},
+  {key:"invest", icon:"◈",  label:"Invest"},
+  {key:"export", icon:"↗",  label:"Export"},
 ];
 
 export default function App() {
@@ -1024,6 +1190,9 @@ export default function App() {
   const [entries,     setEntries]     = useState(()=>allEntries());
   const [savedShow,   setSavedShow]   = useState(false);
   const [calMonth,    setCalMonth]    = useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
+  const [driveStatus, setDS]          = useState("");
+  const [driveLoading,setDL]          = useState(false);
+  const [lastSync,    setLastSync]    = useState("");
   const saveTimer = useRef(null);
   const mainRef   = useRef(null);
 
@@ -1047,6 +1216,45 @@ export default function App() {
   const selectDay = useCallback(date=>{setSelDate(date);setTab("write");setSidebarOpen(false);},[]);
   const onToday   = useCallback(()=>selectDay(today),[selectDay,today]);
 
+  const switchTab = useCallback(newTab=>{
+    if(newTab==="write"&&tab!=="write") setEntry(load(selDate));
+    setTab(newTab);
+  },[tab,selDate]);
+
+  const doSyncDrive = useCallback(async()=>{
+    setDL(true); setDS("Syncing to Drive…");
+    try{
+      await saveToDrive(entries);
+      const t=new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
+      setDS(`✓ Saved to Drive — ${t}`);
+      setLastSync(t);
+    }catch(e){setDS("✗ "+(e.error_description||e.message||"Sync failed. Check your Client ID."));}
+    finally{setDL(false);}
+  },[entries]);
+
+  const doRestoreDrive = useCallback(async()=>{
+    setDL(true); setDS("Restoring from Drive…");
+    try{
+      const raw=await loadFromDrive();
+      if(!raw){setDS("No backup found in Drive.");return;}
+      const data=Array.isArray(raw)?raw:Object.values(raw);
+      let count=0;
+      data.forEach(e=>{
+        if(e.date){localStorage.setItem(KEY+e.date,JSON.stringify(migrate({...e})));count++;}
+      });
+      setEntries(allEntries());
+      setEntry(load(selDate));
+      const t=new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
+      setDS(`✓ Restored ${count} entries from Drive — ${t}`);
+      setLastSync(t);
+    }catch(e){setDS("✗ "+(e.error_description||e.message||"Restore failed."));}
+    finally{setDL(false);}
+  },[selDate]);
+
+  const onAddInvestingToday = useCallback(()=>{
+    selectDay(today);
+  },[selectDay,today]);
+
   const totalDays      = entries.length;
   const diaryDays      = entries.filter(e=>(e.diaryBlocks||[]).some(b=>b.text?.trim())||e.diary?.trim()).length;
   const todayL         = load(today);
@@ -1064,22 +1272,35 @@ export default function App() {
 
   const entrySet = new Set(entries.map(e=>e.date));
   const stats    = {totalDays,diaryDays,streak,doneTodayCount};
+  const configured = GOOGLE_CLIENT_ID !== "YOUR_GOOGLE_CLIENT_ID_HERE";
+
+  const syncBtnClass = driveStatus.startsWith("✓")?"synced":driveStatus.startsWith("✗")?"error":"";
 
   return (
     <>
       <style>{css}</style>
       <div className="app">
         <div className={`overlay${sidebarOpen?" open":""}`} onClick={()=>setSidebarOpen(false)}/>
-        <Sidebar open={sidebarOpen} entries={entries} selectedDate={selDate} today={today} onSelect={selectDay} onToday={onToday}/>
+        <Sidebar open={sidebarOpen} entries={entries} selectedDate={selDate} today={today} onSelect={selectDay} onToday={onToday} lastSync={lastSync}/>
 
         <div className="main" ref={mainRef}>
           <div className="topbar">
             <button className="hbg" onClick={()=>setSidebarOpen(o=>!o)}><span/><span/><span/></button>
             <span className="tb-title">My Journal</span>
             <span className="tb-date">{fmtDate(today,{weekday:"short",month:"short",day:"numeric"})}</span>
+            {configured&&(
+              <button className={`tb-sync${syncBtnClass?" "+syncBtnClass:""}`} onClick={doSyncDrive} disabled={driveLoading} title={driveStatus||"Save to Google Drive"}>
+                {driveLoading?"…":"☁"}
+              </button>
+            )}
           </div>
           <div className="desk-nav">
-            {NAVS.map(n=><button key={n.key} className={`npill${tab===n.key?" active":""}`} onClick={()=>setTab(n.key)}>{n.icon} {n.label}</button>)}
+            {NAVS.map(n=><button key={n.key} className={`npill${tab===n.key?" active":""}`} onClick={()=>switchTab(n.key)}>{n.icon} {n.label}</button>)}
+            {configured&&(
+              <button className={`npill sync-pill${syncBtnClass?" "+syncBtnClass:""}`} onClick={doSyncDrive} disabled={driveLoading} title={driveStatus||"Save to Google Drive"}>
+                {driveLoading?"…":"☁"} {driveStatus?driveStatus.slice(0,22):"Sync"}
+              </button>
+            )}
           </div>
 
           <div style={{display:tab==="write"?"block":"none"}}>
@@ -1091,14 +1312,19 @@ export default function App() {
           <div style={{display:tab==="search"?"block":"none"}}>
             <SearchView entries={entries} onSelect={selectDay}/>
           </div>
+          <div style={{display:tab==="invest"?"block":"none"}}>
+            <InvestingView onAddToday={onAddInvestingToday}/>
+          </div>
           <div style={{display:tab==="export"?"block":"none"}}>
-            <ExportView entries={entries} onImport={()=>{setEntries(allEntries());setEntry(load(selDate));}}/>
+            <ExportView entries={entries} onImport={()=>{setEntries(allEntries());setEntry(load(selDate));}}
+              driveStatus={driveStatus} driveLoading={driveLoading}
+              onSyncDrive={doSyncDrive} onRestoreDrive={doRestoreDrive}/>
           </div>
         </div>
 
         <div className="bot-nav">
           <div className="bn-items">
-            {NAVS.map(n=><button key={n.key} className={`bn-item${tab===n.key?" active":""}`} onClick={()=>setTab(n.key)}><span className="bn-ico">{n.icon}</span>{n.label}</button>)}
+            {NAVS.map(n=><button key={n.key} className={`bn-item${tab===n.key?" active":""}`} onClick={()=>switchTab(n.key)}><span className="bn-ico">{n.icon}</span>{n.label}</button>)}
           </div>
         </div>
 
