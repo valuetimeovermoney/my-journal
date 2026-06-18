@@ -126,27 +126,51 @@ const allEntries = () => {
 };
 
 // ─── Google Drive ─────────────────────────────────────────────────────────────
+const DRIVE_CONNECTED_KEY = "myjournal_drive_connected";
+
 let gsiLoaded=false;
 const loadGSI = () => new Promise(res=>{
   if(gsiLoaded||window.google?.accounts){gsiLoaded=true;return res();}
   const s=document.createElement("script"); s.src="https://accounts.google.com/gsi/client";
   s.onload=()=>{gsiLoaded=true;res();}; document.head.appendChild(s);
 });
+
+// Token cache — one OAuth prompt per session, then silent reuse
+let _tok=null, _tokExp=0;
+const getCachedToken = () => (_tok && Date.now()<_tokExp-60000) ? _tok : null;
+const cacheToken = r => { _tok=r.access_token; _tokExp=Date.now()+(r.expires_in||3600)*1000; return _tok; };
+
+// Interactive auth — shows Google account picker (called once per session on demand)
 const getToken = () => new Promise((res,rej)=>{
+  const cached=getCachedToken(); if(cached) return res(cached);
   loadGSI().then(()=>{
     window.google.accounts.oauth2.initTokenClient({
       client_id:GOOGLE_CLIENT_ID, scope:DRIVE_SCOPE,
-      callback:r=>r.error?rej(r):res(r.access_token),
+      callback:r=>r.error?rej(r):res(cacheToken(r)),
     }).requestAccessToken();
   });
 });
+
+// Silent auth — returns null instead of prompting if session expired
+const getTokenSilent = () => new Promise(res=>{
+  const cached=getCachedToken(); if(cached) return res(cached);
+  loadGSI().then(()=>{
+    window.google.accounts.oauth2.initTokenClient({
+      client_id:GOOGLE_CLIENT_ID, scope:DRIVE_SCOPE,
+      callback:r=>res(r.error?null:cacheToken(r)),
+      error_callback:()=>res(null),
+    }).requestAccessToken({prompt:"none"});
+  }).catch(()=>res(null));
+});
+
 const getDriveFileId = async token => {
   const r=await fetch(`https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='${DRIVE_FILE_NAME}'&fields=files(id)`,
     {headers:{"Authorization":`Bearer ${token}`}}).then(r=>r.json());
   return r.files?.[0]?.id||null;
 };
-const saveToDrive = async entries => {
-  const token=await getToken(); const content=JSON.stringify(entries,null,2);
+const saveToDrive = async (entries, token) => {
+  if(!token) token=await getToken();
+  const content=JSON.stringify(entries,null,2);
   const fileId=await getDriveFileId(token);
   let url;
   if(!fileId){
@@ -158,8 +182,9 @@ const saveToDrive = async entries => {
   await fetch(url,{method:"PATCH",headers:{"Authorization":`Bearer ${token}`,"Content-Type":"application/json"},body:content});
   return true;
 };
-const loadFromDrive = async () => {
-  const token=await getToken(); const fileId=await getDriveFileId(token);
+const loadFromDrive = async (token) => {
+  if(!token) token=await getToken();
+  const fileId=await getDriveFileId(token);
   if(!fileId) return null;
   return fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
     {headers:{"Authorization":`Bearer ${token}`}}).then(r=>r.json());
@@ -204,6 +229,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .tb-sync:disabled{opacity:.5;cursor:not-allowed;}
 .tb-sync.synced{border-color:#5a9a60;color:#5a9a60;}
 .tb-sync.error{border-color:#c05050;color:#c05050;}
+.tb-sync.connected{border-color:#4285F4;color:#4285F4;}
 
 /* ── main ── */
 .main{flex:1;overflow-y:auto;display:flex;flex-direction:column;}
@@ -1047,7 +1073,7 @@ const SearchView = memo(({ entries, onSelect }) => {
 });
 
 // ─── ExportView ───────────────────────────────────────────────────────────────
-const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, onSyncDrive, onRestoreDrive }) => {
+const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, driveConnected, onSyncDrive, onRestoreDrive, onDisconnect }) => {
   const [importMsg, setImportMsg] = useState("");
   const fileRef = useRef();
   const configured = GOOGLE_CLIENT_ID !== "YOUR_GOOGLE_CLIENT_ID_HERE";
@@ -1114,58 +1140,52 @@ const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, onSyncD
       <h1 className="pg-title">Keep your <em>words</em> safe</h1>
       <div style={{height:20}}/>
 
-      {/* ── Why data disappears ── */}
-      <div className="ex-card" style={{background:"#fff8e8",border:"1.5px solid #e8d8a0"}}>
-        <h3 style={{fontSize:14,color:"#a07820"}}>⚠️ Sync between phone and computer</h3>
-        <p style={{color:"#806010"}}>
-          Each device has its own storage — entries written on your computer won't appear on your phone until you sync.<br/><br/>
-          <strong>To sync (e.g. get June 8 on your phone):</strong><br/>
-          1. On your <strong>computer</strong>: tap ☁ Save to Drive below<br/>
-          2. On your <strong>phone</strong>: open the app → Export tab → tap ↓ Restore from Drive<br/><br/>
-          <strong>Or use JSON:</strong> Download on computer → upload on phone.
-        </p>
-      </div>
-
-      {/* ── Google Drive ── */}
-      <div className="drive-card">
-        <h3>☁️ Google Drive Sync</h3>
-        <p>One-tap backup and restore. Syncs all entries across any device. Also available via the ☁ button in the top bar.</p>
-        {configured?(
-          <>
-            <div className="drive-btns">
-              <button className="ex-btn goog" onClick={onSyncDrive} disabled={driveLoading}>{driveLoading?"…":"☁"} Save to Drive</button>
-              <button className="ex-btn goog-o" onClick={onRestoreDrive} disabled={driveLoading}>↓ Restore from Drive</button>
-            </div>
-            {driveStatus&&<div className="drive-status">{driveStatus}</div>}
-          </>
-        ):(
-          <div className="drive-setup">
-            <strong>One-time 5-min setup:</strong><br/>
-            1. <strong>console.cloud.google.com</strong> → New project → Enable <strong>Google Drive API</strong><br/>
-            2. OAuth consent → External → add your Gmail as test user<br/>
-            3. Credentials → OAuth 2.0 Client ID → Web app<br/>
-            &nbsp;&nbsp;&nbsp;Authorised JS origin: <code>https://claude.site</code><br/>
-            4. Paste Client ID at the top of this file where it says <code>GOOGLE_CLIENT_ID</code>
+      {/* ── Drive sync card ── */}
+      {configured&&(driveConnected?(
+        <div className="ex-card" style={{background:"#f0f8f0",border:"1.5px solid #b0d8b0"}}>
+          <h3 style={{color:"#2a6a2a"}}>✓ Auto-sync is on</h3>
+          <p style={{color:"#3a5a3a"}}>
+            Your journal saves to Google Drive automatically every time you write.<br/>
+            Open the app on any device and it restores from Drive on load — no tapping needed.<br/><br/>
+            <strong>To get this device in sync:</strong> the app auto-restores when you open it. Or tap Sync now.
+          </p>
+          <div className="drive-btns">
+            <button className="ex-btn goog" onClick={onSyncDrive} disabled={driveLoading}>{driveLoading?"…":"☁"} Sync now</button>
+            <button className="ex-btn goog-o" onClick={onRestoreDrive} disabled={driveLoading}>↓ Restore from Drive</button>
+            <button className="ex-btn sec" onClick={onDisconnect} style={{fontSize:11}}>Disconnect</button>
           </div>
-        )}
-      </div>
+          {driveStatus&&<div className="drive-status">{driveStatus}</div>}
+        </div>
+      ):(
+        <div className="drive-card">
+          <h3>☁️ Connect Google Drive — automatic sync</h3>
+          <p>
+            Connect once and your journal saves to Drive automatically on every write. Open the app on your phone or laptop and your entries are always there — no manual steps.<br/><br/>
+            <strong>One click below</strong> → pick your Google account → done forever.
+          </p>
+          <button className="ex-btn goog" onClick={onSyncDrive} disabled={driveLoading} style={{marginBottom:8}}>
+            {driveLoading?"Connecting…":"☁ Connect Google Drive"}
+          </button>
+          {driveStatus&&<div className="drive-status" style={{marginTop:8}}>{driveStatus}</div>}
+        </div>
+      ))}
 
       {/* ── Restore from file ── */}
       <div className="ex-card" style={{border:"1.5px solid #C8A96E40"}}>
         <h3>📂 Restore from file</h3>
-        <p>Have a JSON backup from a previous session? Load it here and all your entries come back instantly.</p>
+        <p>Have a JSON backup? Load it here and all your entries come back instantly.</p>
         <input ref={fileRef} type="file" accept=".json" style={{display:"none"}} onChange={handleImport}/>
         <button className="ex-btn pri" onClick={()=>fileRef.current.click()}>↑ Load backup file</button>
-        {importMsg && <div style={{marginTop:10,fontSize:12,color:importMsg.startsWith("✓")?"#4a9a4a":"#c05050",padding:"8px 12px",background:"white",borderRadius:6,border:"1px solid #e0e0e0"}}>{importMsg}</div>}
+        {importMsg&&<div style={{marginTop:10,fontSize:12,color:importMsg.startsWith("✓")?"#4a9a4a":"#c05050",padding:"8px 12px",background:"white",borderRadius:6,border:"1px solid #e0e0e0"}}>{importMsg}</div>}
       </div>
 
       {/* ── Download options ── */}
       <div className="ex-card">
         <h3>💾 Download JSON backup</h3>
-        <p>Download your full journal as a file. <strong>Do this at the end of every session</strong> until you have Drive sync set up.</p>
+        <p>Download your full journal as a file you can load on another device.</p>
         <button className="ex-btn pri" onClick={dlJson}>Download .json</button>
       </div>
-      <div className="ex-card"><h3>Markdown</h3><p>All entries — journals, investing notes, books, quotes, gratitude — as a .md file. Great for Obsidian, Notion, or a future book.</p><button className="ex-btn sec" onClick={dlMd}>Download .md</button></div>
+      <div className="ex-card"><h3>Markdown</h3><p>All entries — journal, investing notes, books, quotes, gratitude — as a .md file. Great for Obsidian or Notion.</p><button className="ex-btn sec" onClick={dlMd}>Download .md</button></div>
       <div className="ex-card"><h3>Substack / Blog</h3><p>Journal entries + quotes, formatted for Substack.</p><button className="ex-btn sec" onClick={dlSub}>Download for Substack</button></div>
     </div>
   );
@@ -1182,19 +1202,47 @@ const NAVS = [
 
 export default function App() {
   const today = todayKey();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [tab,         setTab]         = useState("write");
-  const [selDate,     setSelDate]     = useState(today);
-  const [editMode,    setEditMode]    = useState(true);
-  const [entry,       setEntry]       = useState(()=>load(today));
-  const [entries,     setEntries]     = useState(()=>allEntries());
-  const [savedShow,   setSavedShow]   = useState(false);
-  const [calMonth,    setCalMonth]    = useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
-  const [driveStatus, setDS]          = useState("");
-  const [driveLoading,setDL]          = useState(false);
-  const [lastSync,    setLastSync]    = useState("");
-  const saveTimer = useRef(null);
-  const mainRef   = useRef(null);
+  const [sidebarOpen,   setSidebarOpen] = useState(false);
+  const [tab,           setTab]         = useState("write");
+  const [selDate,       setSelDate]     = useState(today);
+  const [editMode,      setEditMode]    = useState(true);
+  const [entry,         setEntry]       = useState(()=>load(today));
+  const [entries,       setEntries]     = useState(()=>allEntries());
+  const [savedShow,     setSavedShow]   = useState(false);
+  const [calMonth,      setCalMonth]    = useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
+  const [driveStatus,   setDS]          = useState("");
+  const [driveLoading,  setDL]          = useState(false);
+  const [lastSync,      setLastSync]    = useState("");
+  // driveConnected: user has authorized Drive at least once (persisted in localStorage)
+  const [driveConnected,setDriveConn]  = useState(()=>!!localStorage.getItem(DRIVE_CONNECTED_KEY));
+  const saveTimer  = useRef(null);
+  const autoSTimer = useRef(null);
+  const mainRef    = useRef(null);
+  const configured = GOOGLE_CLIENT_ID !== "YOUR_GOOGLE_CLIENT_ID_HERE";
+
+  // On mount: if Drive was previously connected, try silent restore then enable auto-save
+  useEffect(()=>{
+    if(!configured||!driveConnected) return;
+    (async()=>{
+      const token=await getTokenSilent();
+      if(!token) return; // session expired — user will reconnect on next manual sync
+      try{
+        const raw=await loadFromDrive(token);
+        if(!raw) return;
+        const data=Array.isArray(raw)?raw:Object.values(raw);
+        let count=0;
+        data.forEach(e=>{if(e.date){localStorage.setItem(KEY+e.date,JSON.stringify(migrate({...e})));count++;}});
+        if(count>0){
+          setEntries(allEntries());
+          setEntry(load(selDate));
+          const t=new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
+          setLastSync(t);
+          setDS(`✓ Auto-restored ${count} entries — ${t}`);
+        }
+      }catch{}
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   useEffect(()=>{
     setEntry(load(selDate));
@@ -1202,16 +1250,33 @@ export default function App() {
     if(mainRef.current) mainRef.current.scrollTop=0;
   },[selDate]);
 
+  // Save to localStorage on every change; if Drive connected + token cached, also auto-push
   useEffect(()=>{
     clearTimeout(saveTimer.current);
     saveTimer.current=setTimeout(()=>{
       save(selDate,entry);
-      setEntries(allEntries());
+      const updated=allEntries();
+      setEntries(updated);
       setSavedShow(true);
       setTimeout(()=>setSavedShow(false),2000);
+      // Auto-push to Drive if we have a cached token (no prompt)
+      if(configured&&driveConnected){
+        const token=getCachedToken();
+        if(token){
+          clearTimeout(autoSTimer.current);
+          autoSTimer.current=setTimeout(async()=>{
+            try{
+              await saveToDrive(updated,token);
+              const t=new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
+              setLastSync(t);
+              setDS(`✓ Auto-saved — ${t}`);
+            }catch{}
+          },1500); // slight delay so rapid typing doesn't spam Drive
+        }
+      }
     },700);
     return()=>clearTimeout(saveTimer.current);
-  },[entry,selDate]);
+  },[entry,selDate,driveConnected,configured]);
 
   const selectDay = useCallback(date=>{setSelDate(date);setTab("write");setSidebarOpen(false);},[]);
   const onToday   = useCallback(()=>selectDay(today),[selectDay,today]);
@@ -1221,39 +1286,48 @@ export default function App() {
     setTab(newTab);
   },[tab,selDate]);
 
+  // Interactive sync — called manually; also gets/caches token so auto-save kicks in after
   const doSyncDrive = useCallback(async()=>{
-    setDL(true); setDS("Syncing to Drive…");
+    setDL(true); setDS("Syncing…");
     try{
-      await saveToDrive(entries);
+      await saveToDrive(entries); // getToken() called inside, caches token
+      localStorage.setItem(DRIVE_CONNECTED_KEY,"1");
+      setDriveConn(true);
       const t=new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
       setDS(`✓ Saved to Drive — ${t}`);
       setLastSync(t);
-    }catch(e){setDS("✗ "+(e.error_description||e.message||"Sync failed. Check your Client ID."));}
+    }catch(e){setDS("✗ "+(e.error_description||e.message||"Sync failed."));}
     finally{setDL(false);}
   },[entries]);
 
   const doRestoreDrive = useCallback(async()=>{
     setDL(true); setDS("Restoring from Drive…");
     try{
-      const raw=await loadFromDrive();
+      const raw=await loadFromDrive(); // interactive token
       if(!raw){setDS("No backup found in Drive.");return;}
       const data=Array.isArray(raw)?raw:Object.values(raw);
       let count=0;
-      data.forEach(e=>{
-        if(e.date){localStorage.setItem(KEY+e.date,JSON.stringify(migrate({...e})));count++;}
-      });
+      data.forEach(e=>{if(e.date){localStorage.setItem(KEY+e.date,JSON.stringify(migrate({...e})));count++;}});
       setEntries(allEntries());
       setEntry(load(selDate));
+      localStorage.setItem(DRIVE_CONNECTED_KEY,"1");
+      setDriveConn(true);
       const t=new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
-      setDS(`✓ Restored ${count} entries from Drive — ${t}`);
+      setDS(`✓ Restored ${count} entries — ${t}`);
       setLastSync(t);
     }catch(e){setDS("✗ "+(e.error_description||e.message||"Restore failed."));}
     finally{setDL(false);}
   },[selDate]);
 
-  const onAddInvestingToday = useCallback(()=>{
-    selectDay(today);
-  },[selectDay,today]);
+  const disconnectDrive = useCallback(()=>{
+    localStorage.removeItem(DRIVE_CONNECTED_KEY);
+    setDriveConn(false);
+    setDS("");
+    setLastSync("");
+    _tok=null; _tokExp=0;
+  },[]);
+
+  const onAddInvestingToday = useCallback(()=>selectDay(today),[selectDay,today]);
 
   const totalDays      = entries.length;
   const diaryDays      = entries.filter(e=>(e.diaryBlocks||[]).some(b=>b.text?.trim())||e.diary?.trim()).length;
@@ -1272,9 +1346,7 @@ export default function App() {
 
   const entrySet = new Set(entries.map(e=>e.date));
   const stats    = {totalDays,diaryDays,streak,doneTodayCount};
-  const configured = GOOGLE_CLIENT_ID !== "YOUR_GOOGLE_CLIENT_ID_HERE";
-
-  const syncBtnClass = driveStatus.startsWith("✓")?"synced":driveStatus.startsWith("✗")?"error":"";
+  const syncBtnClass = driveConnected?"connected":driveStatus.startsWith("✓")?"synced":driveStatus.startsWith("✗")?"error":"";
 
   return (
     <>
@@ -1289,17 +1361,25 @@ export default function App() {
             <span className="tb-title">My Journal</span>
             <span className="tb-date">{fmtDate(today,{weekday:"short",month:"short",day:"numeric"})}</span>
             {configured&&(
-              <button className={`tb-sync${syncBtnClass?" "+syncBtnClass:""}`} onClick={doSyncDrive} disabled={driveLoading} title={driveStatus||"Save to Google Drive"}>
-                {driveLoading?"…":"☁"}
-              </button>
+              driveConnected
+                ?<button className={`tb-sync${syncBtnClass?" "+syncBtnClass:""}`} onClick={doSyncDrive} disabled={driveLoading} title={driveStatus||"Sync to Drive"}>
+                    {driveLoading?"…":"☁"}
+                  </button>
+                :<button className="tb-sync" onClick={doSyncDrive} disabled={driveLoading} title="Connect Google Drive for auto-sync">
+                    {driveLoading?"…":"Connect Drive"}
+                  </button>
             )}
           </div>
           <div className="desk-nav">
             {NAVS.map(n=><button key={n.key} className={`npill${tab===n.key?" active":""}`} onClick={()=>switchTab(n.key)}>{n.icon} {n.label}</button>)}
             {configured&&(
-              <button className={`npill sync-pill${syncBtnClass?" "+syncBtnClass:""}`} onClick={doSyncDrive} disabled={driveLoading} title={driveStatus||"Save to Google Drive"}>
-                {driveLoading?"…":"☁"} {driveStatus?driveStatus.slice(0,22):"Sync"}
-              </button>
+              driveConnected
+                ?<button className={`npill sync-pill${syncBtnClass?" "+syncBtnClass:""}`} onClick={doSyncDrive} disabled={driveLoading} title={driveStatus||"Auto-syncing to Drive"}>
+                    {driveLoading?"…":"☁"} {driveStatus?driveStatus.slice(0,26):"Auto-sync on"}
+                  </button>
+                :<button className={`npill sync-pill`} onClick={doSyncDrive} disabled={driveLoading} title="Connect Google Drive for auto-sync">
+                    {driveLoading?"…":"☁ Connect Drive"}
+                  </button>
             )}
           </div>
 
@@ -1317,8 +1397,8 @@ export default function App() {
           </div>
           <div style={{display:tab==="export"?"block":"none"}}>
             <ExportView entries={entries} onImport={()=>{setEntries(allEntries());setEntry(load(selDate));}}
-              driveStatus={driveStatus} driveLoading={driveLoading}
-              onSyncDrive={doSyncDrive} onRestoreDrive={doRestoreDrive}/>
+              driveStatus={driveStatus} driveLoading={driveLoading} driveConnected={driveConnected}
+              onSyncDrive={doSyncDrive} onRestoreDrive={doRestoreDrive} onDisconnect={disconnectDrive}/>
           </div>
         </div>
 
