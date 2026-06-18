@@ -627,27 +627,30 @@ const BookCard = memo(({ book, num, onChange, onDelete }) => {
           <input className="bf-inp" value={book.author} placeholder="Author…" onChange={e=>set("author",e.target.value)}/>
         </div>
       </div>
-      {sessions.map((s,i)=>{
-        const mins=calcMins(s.startTime,s.endTime);
-        return (
-          <div key={s.id} className="book-time-row">
-            <div className="bf">
-              <div className="bf-lbl">{sessions.length>1?`Session ${i+1} start`:"Started reading"}</div>
-              <input className="bf-inp bf-time" type="time" value={s.startTime||""} onChange={e=>updSession(s.id,"startTime",e.target.value)}/>
+      <div style={{marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+          <div className="bf-lbl">Reading sessions</div>
+          <button onClick={addSession} style={{background:"none",border:"1.5px solid #8ababa",borderRadius:5,padding:"2px 10px",fontSize:11,color:"#8ababa",cursor:"pointer",transition:"all .2s"}}
+            onMouseEnter={e=>{e.target.style.background="#8ababa";e.target.style.color="white";}} onMouseLeave={e=>{e.target.style.background="none";e.target.style.color="#8ababa";}}>
+            + Add session
+          </button>
+        </div>
+        {sessions.map((s,i)=>{
+          const mins=calcMins(s.startTime,s.endTime);
+          return (
+            <div key={s.id} style={{display:"flex",alignItems:"center",gap:8,background:"#f2fafa",borderRadius:8,padding:"8px 10px",marginBottom:5}}>
+              <span style={{fontSize:11,color:"#8ababa",fontWeight:600,minWidth:22,flexShrink:0}}>#{i+1}</span>
+              <input className="bf-inp bf-time" type="time" value={s.startTime||""} onChange={e=>updSession(s.id,"startTime",e.target.value)} style={{flex:1,minWidth:0,padding:"2px 0"}}/>
+              <span style={{color:"#ccc",flexShrink:0}}>→</span>
+              <input className="bf-inp bf-time" type="time" value={s.endTime||""} onChange={e=>updSession(s.id,"endTime",e.target.value)} style={{flex:1,minWidth:0,padding:"2px 0"}}/>
+              {mins>0 ? <span style={{color:"#4a9a9a",fontSize:12,fontWeight:600,flexShrink:0,minWidth:32,textAlign:"right"}}>{fmtMins(mins)}</span>
+                      : <span style={{fontSize:10,color:"#8ababa",flexShrink:0}}>now…</span>}
+              {sessions.length>1&&<button className="book-del" style={{flexShrink:0,marginLeft:2}} onClick={()=>delSession(s.id)}>×</button>}
             </div>
-            <div className="time-arrow">→</div>
-            <div className="bf">
-              <div className="bf-lbl">Finished</div>
-              <input className="bf-inp bf-time" type="time" value={s.endTime||""} onChange={e=>updSession(s.id,"endTime",e.target.value)}/>
-            </div>
-            {mins>0&&<div className="book-dur"><div className="book-dur-val">{fmtMins(mins)}</div><div className="book-dur-lbl">read</div></div>}
-            {sessions.length>1&&<button className="book-del" style={{alignSelf:"flex-end",marginBottom:6}} title="Remove session" onClick={()=>delSession(s.id)}>×</button>}
-          </div>
-        );
-      })}
-      {sessions.length===1&&!sessions[0].endTime&&<div className="reading-now-badge">📖 Reading now…</div>}
-      {total>0&&sessions.length>1&&<div style={{fontSize:12,color:"#4a9a9a",fontWeight:500,marginBottom:8}}>Session total: {fmtMins(total)}</div>}
-      <button className="add-row" style={{marginBottom:12}} onClick={addSession}>+ Add another reading session</button>
+          );
+        })}
+        {total>0&&sessions.length>1&&<div style={{textAlign:"right",fontSize:12,color:"#4a9a9a",fontWeight:600,marginTop:2}}>Total: {fmtMins(total)}</div>}
+      </div>
       <div className="bf-lbl" style={{marginBottom:5}}>Notes / highlights</div>
       <textarea className="bn-ta" value={book.notes} placeholder="Any highlights, quotes, or thoughts from this book…"
         onChange={e=>{set("notes",e.target.value);grow(e.target);}}
@@ -767,40 +770,59 @@ const InvestNoteCard = memo(({ note, date, onSave, onDelete }) => {
   );
 });
 
-// ─── Investor Profile (persistent global, stored outside daily entries) ───────
-const INVESTOR_KEY   = "myjournal_investor";
-const loadInvestor   = () => { try{const r=localStorage.getItem(INVESTOR_KEY);return r?JSON.parse(r):{name:"",strategy:"",website:""};}catch{} return {name:"",strategy:"",website:""}; };
-const saveInvestor   = d => localStorage.setItem(INVESTOR_KEY, JSON.stringify(d));
+// ─── Investor Profiles (multiple, persistent, stored outside daily entries) ───
+const INVESTOR_KEY    = "myjournal_investor";
+const blankInvestor   = () => ({ id:uid(), name:"", strategy:"", website:"" });
+const loadInvestors   = () => {
+  try {
+    const r=localStorage.getItem(INVESTOR_KEY);
+    if(r){
+      const d=JSON.parse(r);
+      if(Array.isArray(d)) return d.length?d:[blankInvestor()];
+      if(d&&typeof d==="object") return [{id:uid(),...d}]; // migrate single→array
+    }
+  } catch {}
+  return [blankInvestor()];
+};
+const saveInvestors = d => localStorage.setItem(INVESTOR_KEY, JSON.stringify(d));
 
 const InvestorProfile = memo(() => {
-  const [profile, setProfile] = useState(()=>loadInvestor());
+  const [profiles, setProfiles] = useState(()=>loadInvestors());
   const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
-  const update = useCallback((f,v)=>{
-    const updated={...profile,[f]:v};
-    setProfile(updated);
-    saveInvestor(updated);
-  },[profile]);
+  const upd = useCallback((id,f,v)=>{const u=profiles.map(p=>p.id===id?{...p,[f]:v}:p);setProfiles(u);saveInvestors(u);},[profiles]);
+  const add = useCallback(()=>{const u=[...profiles,blankInvestor()];setProfiles(u);saveInvestors(u);},[profiles]);
+  const del = useCallback(id=>{const u=profiles.filter(p=>p.id!==id);const f=u.length?u:[blankInvestor()];setProfiles(f);saveInvestors(f);},[profiles]);
   return (
-    <div style={{background:"white",borderRadius:10,padding:"16px 18px",border:"1.5px solid #d8eed8",marginBottom:14}}>
-      <div style={{fontSize:10,color:"#5a9a60",textTransform:"uppercase",letterSpacing:"1.2px",marginBottom:14,fontWeight:500}}>Investor Profile</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:12}}>
-        <div className="bf">
-          <div className="bf-lbl">Name</div>
-          <input className="bf-inp" value={profile.name} placeholder="Your name…" onChange={e=>update("name",e.target.value)}/>
+    <div style={{marginBottom:14}}>
+      {profiles.map((p,i)=>(
+        <div key={p.id} style={{background:"white",borderRadius:10,padding:"16px 18px",border:"1.5px solid #d8eed8",marginBottom:10}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+            <div style={{fontSize:10,color:"#5a9a60",textTransform:"uppercase",letterSpacing:"1.2px",fontWeight:500}}>
+              {profiles.length>1?`Investor ${i+1}`:"Investor Profile"}
+            </div>
+            {profiles.length>1&&<button className="db-del" onClick={()=>del(p.id)}>×</button>}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:12}}>
+            <div className="bf">
+              <div className="bf-lbl">Name</div>
+              <input className="bf-inp" value={p.name} placeholder="Your name…" onChange={e=>upd(p.id,"name",e.target.value)}/>
+            </div>
+            <div className="bf">
+              <div className="bf-lbl">Website / Reference</div>
+              <input className="bf-inp" value={p.website} placeholder="e.g. https://example.com" onChange={e=>upd(p.id,"website",e.target.value)}/>
+            </div>
+          </div>
+          <div className="bf">
+            <div className="bf-lbl">Investment Strategy</div>
+            <textarea className="bn-ta" value={p.strategy}
+              placeholder="Describe your investment strategy — philosophy, focus areas, time horizon…"
+              onChange={e=>{upd(p.id,"strategy",e.target.value);grow(e.target);}}
+              onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}
+              style={{marginTop:4,minHeight:52}}/>
+          </div>
         </div>
-        <div className="bf">
-          <div className="bf-lbl">Website / Reference</div>
-          <input className="bf-inp" value={profile.website} placeholder="e.g. https://example.com" onChange={e=>update("website",e.target.value)}/>
-        </div>
-      </div>
-      <div className="bf">
-        <div className="bf-lbl">Investment Strategy</div>
-        <textarea className="bn-ta" value={profile.strategy}
-          placeholder="Describe your investment strategy — philosophy, focus areas, time horizon…"
-          onChange={e=>{update("strategy",e.target.value);grow(e.target);}}
-          onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}
-          style={{marginTop:4,minHeight:52}}/>
-      </div>
+      ))}
+      <button className="add-row" onClick={add}>+ Add another investor profile</button>
     </div>
   );
 });
