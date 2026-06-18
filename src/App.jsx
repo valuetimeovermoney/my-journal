@@ -81,7 +81,7 @@ const blankMyQuote = () => ({ id:uid(), text:"", source:"", ts:nowTs() });
 const blankEntry = () => ({
   todos:            [{text:"",done:false}],
   diaryBlocks:      [],
-  gratitude:        ["",""],
+  gratitude:        ["","",""],
   weeklyReflection: "",
   location:         DEFAULT_LOCATION,
   books:            [],
@@ -395,6 +395,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .ref-ta{width:100%;min-height:110px;border:1.5px solid transparent;border-radius:8px;background:white;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-style:italic;font-size:14px;line-height:1.8;color:#1a1a1a;resize:vertical;outline:none;transition:border-color .2s;}
 .ref-ta:focus{border-color:#9bafc030;}
 .ref-ta::placeholder{color:#ccc;}
+
+/* ── focus view ── */
+.focus-view{padding:28px 52px 80px;max-width:760px;}
+.focus-date-hd{display:flex;align-items:baseline;gap:10px;margin:22px 0 8px;}
+.focus-date-lbl{font-family:'Playfair Display',serif;font-size:15px;font-weight:600;color:#1a1a1a;}
+.focus-date-lbl.today-lbl{color:#C8A96E;}
+.focus-date-stat{font-size:10px;color:#bbb;text-transform:uppercase;letter-spacing:1px;}
+.focus-todo{display:flex;align-items:center;gap:10px;background:white;border-radius:8px;padding:10px 12px;margin-bottom:6px;border:1.5px solid transparent;cursor:pointer;transition:border-color .15s,box-shadow .15s;}
+.focus-todo:hover{border-color:#C8A96E30;box-shadow:0 2px 8px rgba(200,169,110,.1);}
+.focus-todo.done-row{opacity:.55;}
+.focus-todo-txt{flex:1;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:14px;font-weight:300;color:#1a1a1a;user-select:none;}
+.focus-todo-txt.struck{text-decoration:line-through;color:#bbb;}
 
 /* ── past view ── */
 .past-wrap{padding:28px 52px 80px;max-width:760px;}
@@ -832,6 +844,62 @@ const InvestingView = memo(({ onAddToday }) => {
           ))}
         </div>
       ))}
+    </div>
+  );
+});
+
+// ─── FocusView (all todos across all days) ────────────────────────────────────
+const FocusView = memo(({ today, refreshKey, onSelectDay }) => {
+  const [localTick, setLocalTick] = useState(0);
+
+  const groups = useMemo(()=>
+    allEntries()
+      .map(e=>({ date:e.date, todos:(e.todos||[]).filter(t=>getTxt(t)) }))
+      .filter(e=>e.todos.length>0)
+  ,[refreshKey, localTick]);
+
+  const toggle = useCallback((date, idx)=>{
+    const e=load(date);
+    const todos=(e.todos||[]).map((t,i)=>i===idx?{text:getTxt(t),done:!getDone(t)}:t);
+    save(date,{...e,todos});
+    setLocalTick(t=>t+1);
+  },[]);
+
+  const total   = groups.reduce((a,g)=>a+g.todos.length,0);
+  const done    = groups.reduce((a,g)=>a+g.todos.filter(t=>getDone(t)).length,0);
+
+  return (
+    <div className="focus-view">
+      <div className="eyebrow">All Entries</div>
+      <h1 className="pg-title">Focus <em>List</em></h1>
+      <p style={{fontSize:13,color:"#aaa",fontWeight:300,marginTop:6,marginBottom:6}}>
+        Every focus item across all days — check off here or in the daily entry.
+      </p>
+      {total>0&&<p style={{fontSize:12,color:"#C8A96E",marginBottom:4}}>{done} / {total} done</p>}
+
+      {groups.length===0&&<div className="empty" style={{marginTop:24}}>No focus items yet. Add them in today's entry.</div>}
+
+      {groups.map(({date,todos})=>{
+        const doneCnt=todos.filter(t=>getDone(t)).length;
+        const isToday=date===today;
+        return (
+          <div key={date}>
+            <div className="focus-date-hd">
+              <span className={`focus-date-lbl${isToday?" today-lbl":""}`}
+                style={{cursor:"pointer"}} onClick={()=>onSelectDay(date)} title="Open this day">
+                {isToday?"Today":fmtDate(date,{weekday:"short",month:"short",day:"numeric",year:"numeric"})}
+              </span>
+              <span className="focus-date-stat">{doneCnt}/{todos.length} done</span>
+            </div>
+            {todos.map((t,i)=>(
+              <div key={i} className={`focus-todo${getDone(t)?" done-row":""}`} onClick={()=>toggle(date,i)}>
+                <div className={`ck${getDone(t)?" done":""}`}>{getDone(t)&&"✓"}</div>
+                <span className={`focus-todo-txt${getDone(t)?" struck":""}`}>{getTxt(t)}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 });
@@ -1278,6 +1346,7 @@ const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, driveCo
 // ─── App ──────────────────────────────────────────────────────────────────────
 const NAVS = [
   {key:"write",  icon:"✦",  label:"Write"},
+  {key:"focus",  icon:"◎",  label:"Focus"},
   {key:"month",  icon:"◫",  label:"Month"},
   {key:"search", icon:"⌕",  label:"Search"},
   {key:"invest", icon:"◈",  label:"Invest"},
@@ -1294,6 +1363,7 @@ export default function App() {
   const [entries,       setEntries]     = useState(()=>allEntries());
   const [savedShow,     setSavedShow]   = useState(false);
   const [calMonth,      setCalMonth]    = useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
+  const [focusTick,     setFocusTick]   = useState(0);
   const [driveStatus,   setDS]          = useState("");
   const [driveLoading,  setDL]          = useState(false);
   const [lastSync,      setLastSync]    = useState("");
@@ -1367,6 +1437,7 @@ export default function App() {
 
   const switchTab = useCallback(newTab=>{
     if(newTab==="write"&&tab!=="write") setEntry(load(selDate));
+    if(newTab==="focus") setFocusTick(t=>t+1);
     setTab(newTab);
   },[tab,selDate]);
 
@@ -1469,6 +1540,9 @@ export default function App() {
 
           <div style={{display:tab==="write"?"block":"none"}}>
             <WriteView entry={entry} setEntry={setEntry} selectedDate={selDate} today={today} isEdit={editMode} setEditMode={setEditMode} stats={stats}/>
+          </div>
+          <div style={{display:tab==="focus"?"block":"none"}}>
+            <FocusView today={today} refreshKey={focusTick} onSelectDay={date=>{selectDay(date);switchTab("write");}}/>
           </div>
           <div style={{display:tab==="month"?"block":"none"}}>
             <MonthView calMonth={calMonth} setCalMonth={setCalMonth} entrySet={entrySet} selectedDate={selDate} today={today} streak={streak} totalDays={totalDays} onSelect={selectDay}/>
