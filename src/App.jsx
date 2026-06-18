@@ -59,7 +59,6 @@ const isSun    = s   => { const [y,m,d]=s.split("-").map(Number); return new Dat
 const getTxt   = t   => typeof t==="object" ? t.text : t;
 const getDone  = t   => typeof t==="object" ? !!t.done : false;
 
-// blank book entry — startTime auto-set to now (editable), endTime triggers auto-calc
 const nowHHMM = () => {
   const d = new Date();
   return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
@@ -71,8 +70,10 @@ const calcMins = (start, end) => {
   const diff = (eh*60+em) - (sh*60+sm);
   return diff > 0 ? diff : 0;
 };
-const fmtMins = m => m >= 60 ? `${Math.floor(m/60)}h ${m%60}m` : `${m}m`;
-const blankBook = () => ({ id:uid(), title:"", author:"", startTime:nowHHMM(), endTime:"", notes:"" });
+const fmtMins  = m => m >= 60 ? `${Math.floor(m/60)}h ${m%60}m` : `${m}m`;
+const blankSession = () => ({ id:uid(), startTime:nowHHMM(), endTime:"" });
+const blankBook    = () => ({ id:uid(), title:"", author:"", sessions:[blankSession()], notes:"" });
+const bookMins     = b => (b.sessions||[]).reduce((acc,s)=>acc+calcMins(s.startTime,s.endTime),0);
 
 // blank personal quote
 const blankMyQuote = () => ({ id:uid(), text:"", source:"", ts:nowTs() });
@@ -80,7 +81,7 @@ const blankMyQuote = () => ({ id:uid(), text:"", source:"", ts:nowTs() });
 const blankEntry = () => ({
   todos:            [{text:"",done:false}],
   diaryBlocks:      [],
-  gratitude:        ["",""],
+  gratitude:        ["","",""],
   weeklyReflection: "",
   location:         DEFAULT_LOCATION,
   books:            [],
@@ -91,22 +92,23 @@ const blankEntry = () => ({
 const migrate = p => {
   if (!p || typeof p !== "object") return blankEntry();
   if (!p.diaryBlocks)      p.diaryBlocks      = [];
-  if (!p.location)         p.location         = DEFAULT_LOCATION;
+  if (p.location == null)  p.location         = DEFAULT_LOCATION; // null/undefined only; keep ""
   // old single reading → books array
   if (!p.books) {
     if (p.reading?.book?.trim()) {
-      p.books = [{ id:uid(), title:p.reading.book, author:p.reading.author||"", startTime:"", endTime:"", notes:p.reading.notes||"" }];
+      p.books = [{ id:uid(), title:p.reading.book, author:p.reading.author||"", sessions:[{id:uid(),startTime:"",endTime:""}], notes:p.reading.notes||"" }];
     } else {
       p.books = [];
     }
     delete p.reading;
   }
-  // migrate old books that had minutes instead of startTime/endTime
+  // migrate old books to sessions array format
   p.books = p.books.map(b => {
-    if (b.minutes !== undefined && !b.startTime) {
-      return { ...b, startTime:"", endTime:"", minutes:undefined };
+    if (!b.sessions) {
+      // covers old {startTime, endTime} and {minutes} formats
+      const session = { id:uid(), startTime:b.startTime||"", endTime:b.endTime||"" };
+      return { id:b.id||uid(), title:b.title||"", author:b.author||"", sessions:[session], notes:b.notes||"" };
     }
-    if (b.startTime === undefined) return { ...b, startTime:"", endTime:"" };
     return b;
   });
   if (!p.myQuotes)       p.myQuotes       = [];
@@ -260,7 +262,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .insp-who{font-size:10px;color:#C8A96E;margin-top:4px;text-transform:uppercase;letter-spacing:1px;}
 
 /* ── location ── */
-.loc-bar{display:flex;align-items:center;gap:8px;margin:10px 52px 0;max-width:760px;padding:9px 14px;background:white;border-radius:8px;border:1.5px solid transparent;transition:border-color .2s;}
+.loc-bar{display:flex;align-items:center;gap:8px;margin:10px 52px 0;max-width:760px;padding:9px 14px;background:white;border-radius:8px;border:1.5px solid transparent;transition:border-color .2s;position:relative;}
 .loc-bar:focus-within{border-color:#C8A96E30;}
 .loc-inp{flex:1;border:none;outline:none;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:13px;font-weight:300;color:#555;background:transparent;}
 .loc-inp::placeholder{color:#ccc;}
@@ -268,6 +270,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .loc-gps-btn{background:none;border:1.5px solid #e0d8cc;border-radius:5px;padding:3px 8px;font-size:12px;color:#aaa;cursor:pointer;transition:all .2s;flex-shrink:0;white-space:nowrap;}
 .loc-gps-btn:hover:not(:disabled){border-color:#C8A96E;color:#C8A96E;background:#C8A96E08;}
 .loc-gps-btn:disabled{opacity:.5;cursor:not-allowed;}
+.loc-dropdown{position:absolute;top:100%;left:0;right:0;background:white;border-radius:0 0 8px 8px;border:1.5px solid #e0d8cc;border-top:none;z-index:100;box-shadow:0 4px 16px rgba(0,0,0,.08);margin-top:-1px;}
+.loc-sugg{padding:9px 14px;font-size:13px;color:#555;cursor:pointer;transition:background .15s;display:flex;align-items:center;gap:8px;}
+.loc-sugg:hover{background:#F5F0E8;color:#1a1a1a;}
+.loc-sugg:last-child{border-radius:0 0 6px 6px;}
 
 /* ── stats ── */
 .stats-row{display:flex;gap:10px;flex-wrap:wrap;padding:14px 52px 0;max-width:760px;}
@@ -389,6 +395,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .ref-ta{width:100%;min-height:110px;border:1.5px solid transparent;border-radius:8px;background:white;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-style:italic;font-size:14px;line-height:1.8;color:#1a1a1a;resize:vertical;outline:none;transition:border-color .2s;}
 .ref-ta:focus{border-color:#9bafc030;}
 .ref-ta::placeholder{color:#ccc;}
+
+/* ── focus view ── */
+.focus-view{padding:28px 52px 80px;max-width:760px;}
+.focus-date-hd{display:flex;align-items:baseline;gap:10px;margin:22px 0 8px;}
+.focus-date-lbl{font-family:'Playfair Display',serif;font-size:15px;font-weight:600;color:#1a1a1a;}
+.focus-date-lbl.today-lbl{color:#C8A96E;}
+.focus-date-stat{font-size:10px;color:#bbb;text-transform:uppercase;letter-spacing:1px;}
+.focus-todo{display:flex;align-items:center;gap:10px;background:white;border-radius:8px;padding:10px 12px;margin-bottom:6px;border:1.5px solid transparent;cursor:pointer;transition:border-color .15s,box-shadow .15s;}
+.focus-todo:hover{border-color:#C8A96E30;box-shadow:0 2px 8px rgba(200,169,110,.1);}
+.focus-todo.done-row{opacity:.55;}
+.focus-todo-txt{flex:1;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:14px;font-weight:300;color:#1a1a1a;user-select:none;}
+.focus-todo-txt.struck{text-decoration:line-through;color:#bbb;}
 
 /* ── past view ── */
 .past-wrap{padding:28px 52px 80px;max-width:760px;}
@@ -584,9 +602,13 @@ const JournalBlocks = memo(({ blocks, onChange }) => {
 });
 
 const BookCard = memo(({ book, num, onChange, onDelete }) => {
-  const set  = useCallback((f,v)=>onChange({...book,[f]:v}),[book,onChange]);
-  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
-  const mins = calcMins(book.startTime, book.endTime);
+  const set        = useCallback((f,v)=>onChange({...book,[f]:v}),[book,onChange]);
+  const grow       = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
+  const addSession = useCallback(()=>onChange({...book,sessions:[...(book.sessions||[]),blankSession()]}),[book,onChange]);
+  const updSession = useCallback((id,f,v)=>onChange({...book,sessions:(book.sessions||[]).map(s=>s.id===id?{...s,[f]:v}:s)}),[book,onChange]);
+  const delSession = useCallback(id=>onChange({...book,sessions:(book.sessions||[]).filter(s=>s.id!==id)}),[book,onChange]);
+  const sessions   = book.sessions||[];
+  const total      = bookMins(book);
   return (
     <div className="book-card">
       <div className="book-card-head">
@@ -603,25 +625,28 @@ const BookCard = memo(({ book, num, onChange, onDelete }) => {
           <input className="bf-inp" value={book.author} placeholder="Author…" onChange={e=>set("author",e.target.value)}/>
         </div>
       </div>
-      <div className="book-time-row">
-        <div className="bf">
-          <div className="bf-lbl">Started reading</div>
-          <input className="bf-inp bf-time" type="time" value={book.startTime||""} onChange={e=>set("startTime",e.target.value)}/>
-        </div>
-        <div className="time-arrow">→</div>
-        <div className="bf">
-          <div className="bf-lbl">Finished reading</div>
-          <input className="bf-inp bf-time" type="time" value={book.endTime||""} onChange={e=>set("endTime",e.target.value)}/>
-        </div>
-        {mins > 0 && (
-          <div className="book-dur">
-            <div className="book-dur-val">{fmtMins(mins)}</div>
-            <div className="book-dur-lbl">read</div>
+      {sessions.map((s,i)=>{
+        const mins=calcMins(s.startTime,s.endTime);
+        return (
+          <div key={s.id} className="book-time-row">
+            <div className="bf">
+              <div className="bf-lbl">{sessions.length>1?`Session ${i+1} start`:"Started reading"}</div>
+              <input className="bf-inp bf-time" type="time" value={s.startTime||""} onChange={e=>updSession(s.id,"startTime",e.target.value)}/>
+            </div>
+            <div className="time-arrow">→</div>
+            <div className="bf">
+              <div className="bf-lbl">Finished</div>
+              <input className="bf-inp bf-time" type="time" value={s.endTime||""} onChange={e=>updSession(s.id,"endTime",e.target.value)}/>
+            </div>
+            {mins>0&&<div className="book-dur"><div className="book-dur-val">{fmtMins(mins)}</div><div className="book-dur-lbl">read</div></div>}
+            {sessions.length>1&&<button className="book-del" style={{alignSelf:"flex-end",marginBottom:6}} title="Remove session" onClick={()=>delSession(s.id)}>×</button>}
           </div>
-        )}
-      </div>
-      {!book.endTime && <div className="reading-now-badge">📖 Reading now…</div>}
-      <div className="bf-lbl" style={{marginBottom:5,marginTop:4}}>Notes / highlights</div>
+        );
+      })}
+      {sessions.length===1&&!sessions[0].endTime&&<div className="reading-now-badge">📖 Reading now…</div>}
+      {total>0&&sessions.length>1&&<div style={{fontSize:12,color:"#4a9a9a",fontWeight:500,marginBottom:8}}>Session total: {fmtMins(total)}</div>}
+      <button className="add-row" style={{marginBottom:12}} onClick={addSession}>+ Add another reading session</button>
+      <div className="bf-lbl" style={{marginBottom:5}}>Notes / highlights</div>
       <textarea className="bn-ta" value={book.notes} placeholder="Any highlights, quotes, or thoughts from this book…"
         onChange={e=>{set("notes",e.target.value);grow(e.target);}}
         onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
@@ -633,7 +658,7 @@ const ReadingTracker = memo(({ books, onChange }) => {
   const addBook = useCallback(()=>onChange([...books,blankBook()]),[books,onChange]);
   const updBook = useCallback((id,updated)=>onChange(books.map(b=>b.id===id?updated:b)),[books,onChange]);
   const delBook = useCallback(id=>onChange(books.filter(b=>b.id!==id)),[books,onChange]);
-  const totalMins = books.reduce((acc,b)=>acc+calcMins(b.startTime,b.endTime),0);
+  const totalMins = books.reduce((acc,b)=>acc+bookMins(b),0);
   return (
     <div className="book-list">
       {books.map((b,i)=>(
@@ -740,6 +765,36 @@ const InvestNoteCard = memo(({ note, date, onSave, onDelete }) => {
   );
 });
 
+// ─── Investor Profile (persistent global, stored outside daily entries) ───────
+const INVESTOR_KEY   = "myjournal_investor";
+const loadInvestor   = () => { try{const r=localStorage.getItem(INVESTOR_KEY);return r?JSON.parse(r):{name:"",strategy:""};}catch{} return {name:"",strategy:""}; };
+const saveInvestor   = d => localStorage.setItem(INVESTOR_KEY, JSON.stringify(d));
+
+const InvestorProfile = memo(() => {
+  const [profile, setProfile] = useState(()=>loadInvestor());
+  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
+  const update = useCallback((f,v)=>{
+    const updated={...profile,[f]:v};
+    setProfile(updated);
+    saveInvestor(updated);
+  },[profile]);
+  return (
+    <div style={{background:"white",borderRadius:10,padding:"16px 18px",border:"1.5px solid #d8eed8",marginBottom:22}}>
+      <div style={{fontSize:10,color:"#5a9a60",textTransform:"uppercase",letterSpacing:"1.2px",marginBottom:14,fontWeight:500}}>Investor Profile</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:10}}>
+        <div className="bf">
+          <div className="bf-lbl">Name</div>
+          <input className="bf-inp" value={profile.name} placeholder="Your name…" onChange={e=>update("name",e.target.value)}/>
+        </div>
+        <div className="bf">
+          <div className="bf-lbl">Investment Strategy</div>
+          <input className="bf-inp" value={profile.strategy} placeholder="e.g. Value investing, Growth…" onChange={e=>update("strategy",e.target.value)}/>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 // ─── InvestingView (consolidated all-notes view) ──────────────────────────────
 const InvestingView = memo(({ onAddToday }) => {
   const [tick, setTick] = useState(0);
@@ -766,6 +821,8 @@ const InvestingView = memo(({ onAddToday }) => {
         All your investing notes in one place — editable here or from any daily entry.
       </p>
 
+      <InvestorProfile/>
+
       <button className="add-row" style={{marginBottom:24}} onClick={onAddToday}>
         📈 Add investing note for today
       </button>
@@ -791,12 +848,70 @@ const InvestingView = memo(({ onAddToday }) => {
   );
 });
 
+// ─── FocusView (all todos across all days) ────────────────────────────────────
+const FocusView = memo(({ today, refreshKey, onSelectDay }) => {
+  const [localTick, setLocalTick] = useState(0);
+
+  const groups = useMemo(()=>
+    allEntries()
+      .map(e=>({ date:e.date, todos:(e.todos||[]).filter(t=>getTxt(t)) }))
+      .filter(e=>e.todos.length>0)
+  ,[refreshKey, localTick]);
+
+  const toggle = useCallback((date, idx)=>{
+    const e=load(date);
+    const todos=(e.todos||[]).map((t,i)=>i===idx?{text:getTxt(t),done:!getDone(t)}:t);
+    save(date,{...e,todos});
+    setLocalTick(t=>t+1);
+  },[]);
+
+  const total   = groups.reduce((a,g)=>a+g.todos.length,0);
+  const done    = groups.reduce((a,g)=>a+g.todos.filter(t=>getDone(t)).length,0);
+
+  return (
+    <div className="focus-view">
+      <div className="eyebrow">All Entries</div>
+      <h1 className="pg-title">Focus <em>List</em></h1>
+      <p style={{fontSize:13,color:"#aaa",fontWeight:300,marginTop:6,marginBottom:6}}>
+        Every focus item across all days — check off here or in the daily entry.
+      </p>
+      {total>0&&<p style={{fontSize:12,color:"#C8A96E",marginBottom:4}}>{done} / {total} done</p>}
+
+      {groups.length===0&&<div className="empty" style={{marginTop:24}}>No focus items yet. Add them in today's entry.</div>}
+
+      {groups.map(({date,todos})=>{
+        const doneCnt=todos.filter(t=>getDone(t)).length;
+        const isToday=date===today;
+        return (
+          <div key={date}>
+            <div className="focus-date-hd">
+              <span className={`focus-date-lbl${isToday?" today-lbl":""}`}
+                style={{cursor:"pointer"}} onClick={()=>onSelectDay(date)} title="Open this day">
+                {isToday?"Today":fmtDate(date,{weekday:"short",month:"short",day:"numeric",year:"numeric"})}
+              </span>
+              <span className="focus-date-stat">{doneCnt}/{todos.length} done</span>
+            </div>
+            {todos.map((t,i)=>(
+              <div key={i} className={`focus-todo${getDone(t)?" done-row":""}`} onClick={()=>toggle(date,i)}>
+                <div className={`ck${getDone(t)?" done":""}`}>{getDone(t)&&"✓"}</div>
+                <span className={`focus-todo-txt${getDone(t)?" struck":""}`}>{getTxt(t)}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
 // ─── WriteView ────────────────────────────────────────────────────────────────
 const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditMode, stats }) => {
   const isToday = selectedDate === today;
   const show    = isEdit || isToday;
 
-  const [locLoading, setLocLoading] = useState(false);
+  const [locLoading,     setLocLoading]     = useState(false);
+  const [locSuggestions, setLocSuggestions] = useState([]);
+  const locTimerRef = useRef(null);
 
   const setTodos         = useCallback(todos=>setEntry(e=>({...e,todos})),[setEntry]);
   const setBlocks        = useCallback(diaryBlocks=>setEntry(e=>({...e,diaryBlocks})),[setEntry]);
@@ -806,6 +921,28 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
   const setBooks         = useCallback(books=>setEntry(e=>({...e,books})),[setEntry]);
   const setMyQuotes      = useCallback(myQuotes=>setEntry(e=>({...e,myQuotes})),[setEntry]);
   const setInvestNotes   = useCallback(investingNotes=>setEntry(e=>({...e,investingNotes})),[setEntry]);
+
+  const handleLocChange = useCallback(val=>{
+    setLoc(val);
+    setLocSuggestions([]);
+    if(val.length<3) return;
+    clearTimeout(locTimerRef.current);
+    locTimerRef.current=setTimeout(async()=>{
+      try{
+        const res=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(val)}&limit=5&addressdetails=1`);
+        const data=await res.json();
+        const seen=new Set();
+        const suggs=data.map(r=>{
+          const addr=r.address||{};
+          const city=addr.city||addr.town||addr.village||addr.county||"";
+          const state=addr.state||addr.province||"";
+          const country=addr.country||"";
+          return [city,state||country].filter(Boolean).join(", ")||r.display_name.split(",")[0];
+        }).filter(v=>{if(!v||seen.has(v))return false;seen.add(v);return true;});
+        setLocSuggestions(suggs);
+      }catch{}
+    },400);
+  },[setLoc]);
 
   const detectLoc = useCallback(()=>{
     if(!navigator.geolocation){return;}
@@ -873,19 +1010,23 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
           {books.filter(b=>b.title).length>0&&<div className="past-sec">
             <div className="past-lbl">Reading</div>
             {books.filter(b=>b.title).map(b=>{
-              const m=calcMins(b.startTime,b.endTime);
+              const m=bookMins(b);
+              const sess=(b.sessions||[]).filter(s=>s.startTime);
               return (
                 <div key={b.id} className="past-book">
                   <div className="past-book-title">📖 {b.title}{b.author?` — ${b.author}`:""}</div>
-                  <div className="past-book-meta">
-                    {b.startTime&&<span>{b.startTime}{b.endTime?` → ${b.endTime}`:" → in progress"}</span>}
-                    {m>0&&<span style={{marginLeft:8,color:"#4a9a9a",fontWeight:500}}>{fmtMins(m)}</span>}
-                  </div>
+                  {sess.map(s=>{const sm=calcMins(s.startTime,s.endTime);return(
+                    <div key={s.id} className="past-book-meta">
+                      <span>{s.startTime}{s.endTime?` → ${s.endTime}`:" → in progress"}</span>
+                      {sm>0&&<span style={{marginLeft:8,color:"#4a9a9a",fontWeight:500}}>{fmtMins(sm)}</span>}
+                    </div>
+                  );})}
+                  {m>0&&sess.length>1&&<div className="past-book-meta" style={{color:"#4a9a9a",fontWeight:500}}>Total: {fmtMins(m)}</div>}
                   {b.notes&&<div className="past-book-notes">{b.notes}</div>}
                 </div>
               );
             })}
-            {(()=>{const t=books.filter(b=>b.title).reduce((a,b)=>a+calcMins(b.startTime,b.endTime),0);return t>0&&books.filter(b=>b.title).length>1&&<div style={{fontSize:12,color:"#4a9a9a",fontWeight:500,marginTop:6}}>Total reading: {fmtMins(t)}</div>;})()}
+            {(()=>{const t=books.filter(b=>b.title).reduce((a,b)=>a+bookMins(b),0);return t>0&&books.filter(b=>b.title).length>1&&<div style={{fontSize:12,color:"#4a9a9a",fontWeight:500,marginTop:6}}>Total reading: {fmtMins(t)}</div>;})()}
           </div>}
 
           {quotes.filter(q=>q.text?.trim()).length>0&&<div className="past-sec">
@@ -929,11 +1070,22 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
 
       <div className="loc-bar" style={{margin:"10px 52px 0"}}>
         <span style={{color:"#C8A96E",flexShrink:0}}>📍</span>
-        <input className="loc-inp" value={entry.location||DEFAULT_LOCATION} placeholder="Where are you today?" onChange={e=>setLoc(e.target.value)}/>
+        <input className="loc-inp" value={entry.location??""} placeholder={DEFAULT_LOCATION}
+          onChange={e=>handleLocChange(e.target.value)}
+          onBlur={()=>setTimeout(()=>setLocSuggestions([]),200)}/>
         <button className="loc-gps-btn" onClick={detectLoc} disabled={locLoading} title="Detect my location automatically">
           {locLoading?"…":"⌖ GPS"}
         </button>
         <span className="loc-hint">location</span>
+        {locSuggestions.length>0&&(
+          <div className="loc-dropdown">
+            {locSuggestions.map((s,i)=>(
+              <div key={i} className="loc-sugg" onMouseDown={()=>{setLoc(s);setLocSuggestions([]);}}>
+                <span style={{color:"#C8A96E",fontSize:11}}>📍</span>{s}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {isToday&&<div className="stats-row">
@@ -955,13 +1107,13 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
         </div>
 
         <div className="section">
-          <div className="sec-hd"><div className="sec-ic ic-invest">📈</div><div className="sec-ttl">Investing Notes</div><div className="sec-hint">thesis · ideas · observations</div></div>
-          <InvestingNotes notes={entry.investingNotes||[]} onChange={setInvestNotes}/>
+          <div className="sec-hd"><div className="sec-ic ic-read">📖</div><div className="sec-ttl">Reading</div><div className="sec-hint">all books today</div></div>
+          <ReadingTracker books={entry.books||[]} onChange={setBooks}/>
         </div>
 
         <div className="section">
-          <div className="sec-hd"><div className="sec-ic ic-read">📖</div><div className="sec-ttl">Reading</div><div className="sec-hint">all books today</div></div>
-          <ReadingTracker books={entry.books||[]} onChange={setBooks}/>
+          <div className="sec-hd"><div className="sec-ic ic-invest">📈</div><div className="sec-ttl">Investing Notes</div><div className="sec-hint">thesis · ideas · observations</div></div>
+          <InvestingNotes notes={entry.investingNotes||[]} onChange={setInvestNotes}/>
         </div>
 
         <div className="section">
@@ -1090,7 +1242,7 @@ const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, driveCo
       const todos  =(e.todos||[]).filter(t=>getTxt(t)).map(t=>`- [${getDone(t)?"x":" "}] ${getTxt(t)}`).join("\n");
       const story  =(e.diaryBlocks||[]).filter(b=>b.text?.trim()).map(b=>`${b.ts?`*${fmtTime(b.ts)}*\n\n`:""}${b.text}`).join("\n\n---\n\n");
       const invest =(e.investingNotes||[]).filter(n=>n.text?.trim()).map(n=>`${n.ts?`*${fmtTime(n.ts)}*\n\n`:""}${n.text}`).join("\n\n---\n\n");
-      const books  =(e.books||[]).filter(b=>b.title).map(b=>{const m=calcMins(b.startTime,b.endTime);return `📖 **${b.title}**${b.author?` — ${b.author}`:""}${b.startTime?` · ${b.startTime}${b.endTime?`→${b.endTime}`:" (in progress)"}`:""}${m>0?` (${fmtMins(m)})`:""}${b.notes?`\n\n> ${b.notes}`:""}`}).join("\n\n");
+      const books  =(e.books||[]).filter(b=>b.title).map(b=>{const m=bookMins(b);const sess=(b.sessions||[]).filter(s=>s.startTime).map(s=>`${s.startTime}${s.endTime?`→${s.endTime}`:" (in progress)"}`).join(", ");return `📖 **${b.title}**${b.author?` — ${b.author}`:""}${sess?` · ${sess}`:""}${m>0?` (${fmtMins(m)})`:""}${b.notes?`\n\n> ${b.notes}`:""}`}).join("\n\n");
       const quotes =(e.myQuotes||[]).filter(q=>q.text?.trim()).map(q=>`> "${q.text}"${q.source?`\n> — ${q.source}`:""}`).join("\n\n");
       const grat   =(e.gratitude||[]).filter(g=>g?.trim()).map((g,i)=>`${i+1}. ${g}`).join("\n");
       const loc    = e.location?`📍 ${e.location}\n\n`:"";
@@ -1194,6 +1346,7 @@ const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, driveCo
 // ─── App ──────────────────────────────────────────────────────────────────────
 const NAVS = [
   {key:"write",  icon:"✦",  label:"Write"},
+  {key:"focus",  icon:"◎",  label:"Focus"},
   {key:"month",  icon:"◫",  label:"Month"},
   {key:"search", icon:"⌕",  label:"Search"},
   {key:"invest", icon:"◈",  label:"Invest"},
@@ -1210,6 +1363,7 @@ export default function App() {
   const [entries,       setEntries]     = useState(()=>allEntries());
   const [savedShow,     setSavedShow]   = useState(false);
   const [calMonth,      setCalMonth]    = useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
+  const [focusTick,     setFocusTick]   = useState(0);
   const [driveStatus,   setDS]          = useState("");
   const [driveLoading,  setDL]          = useState(false);
   const [lastSync,      setLastSync]    = useState("");
@@ -1283,6 +1437,7 @@ export default function App() {
 
   const switchTab = useCallback(newTab=>{
     if(newTab==="write"&&tab!=="write") setEntry(load(selDate));
+    if(newTab==="focus") setFocusTick(t=>t+1);
     setTab(newTab);
   },[tab,selDate]);
 
@@ -1385,6 +1540,9 @@ export default function App() {
 
           <div style={{display:tab==="write"?"block":"none"}}>
             <WriteView entry={entry} setEntry={setEntry} selectedDate={selDate} today={today} isEdit={editMode} setEditMode={setEditMode} stats={stats}/>
+          </div>
+          <div style={{display:tab==="focus"?"block":"none"}}>
+            <FocusView today={today} refreshKey={focusTick} onSelectDay={date=>{selectDay(date);switchTab("write");}}/>
           </div>
           <div style={{display:tab==="month"?"block":"none"}}>
             <MonthView calMonth={calMonth} setCalMonth={setCalMonth} entrySet={entrySet} selectedDate={selDate} today={today} streak={streak} totalDays={totalDays} onSelect={selectDay}/>
