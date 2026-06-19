@@ -1020,13 +1020,25 @@ const HabitsView = memo(({ today, refreshKey }) => {
 
   const named = habits.filter(h=>h.name.trim());
 
+  const HABIT_QUOTES = [
+    {q:"We are what we repeatedly do. Excellence, then, is not an act, but a habit.", a:"Aristotle"},
+    {q:"Motivation gets you going. Habit keeps you growing.", a:"John C. Maxwell"},
+    {q:"You do not rise to the level of your goals. You fall to the level of your systems.", a:"James Clear"},
+    {q:"Small daily improvements are the key to staggering long-term results.", a:"Robin Sharma"},
+    {q:"Success is the product of daily habits — not once-in-a-lifetime transformations.", a:"James Clear"},
+    {q:"The secret of your future is hidden in your daily routine.", a:"Mike Murdock"},
+    {q:"Chains of habit are too light to be felt until they are too heavy to be broken.", a:"Warren Buffett"},
+  ];
+  const hq = HABIT_QUOTES[new Date().getDay() % HABIT_QUOTES.length];
+
   return (
     <div className="habits-view">
       <div className="eyebrow">Daily &amp; Weekly</div>
       <h1 className="pg-title">My <em>Habits</em></h1>
-      <p style={{fontSize:13,color:"#aaa",fontWeight:300,marginTop:6,marginBottom:22}}>
-        Build your routine here — check them off each day in the Write tab.
-      </p>
+      <div style={{background:"#fff8ee",border:"1.5px solid #fde0b0",borderRadius:10,padding:"14px 18px",marginBottom:22,marginTop:6}}>
+        <div style={{fontSize:13,fontStyle:"italic",color:"#555",lineHeight:1.6}}>"{hq.q}"</div>
+        <div style={{fontSize:11,color:"#e8900a",fontWeight:600,marginTop:6}}>— {hq.a}</div>
+      </div>
 
       {/* Manage list */}
       <div className="hv-manage">
