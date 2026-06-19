@@ -1484,7 +1484,7 @@ const SearchView = memo(({ entries, onSelect }) => {
 });
 
 // ─── ExportView ───────────────────────────────────────────────────────────────
-const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, driveConnected, onSyncDrive, onRestoreDrive, onDisconnect }) => {
+const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, driveConnected, onSyncDrive, onRestoreDrive, onPullDrive, onDisconnect }) => {
   const [importMsg, setImportMsg] = useState("");
   const fileRef = useRef();
   const configured = GOOGLE_CLIENT_ID !== "YOUR_GOOGLE_CLIENT_ID_HERE";
@@ -1557,13 +1557,13 @@ const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, driveCo
         <div className="ex-card" style={{background:"#f0f8f0",border:"1.5px solid #b0d8b0"}}>
           <h3 style={{color:"#2a6a2a"}}>✓ Auto-sync is on</h3>
           <p style={{color:"#3a5a3a"}}>
-            Your journal saves to Google Drive automatically every time you write.<br/>
-            Open the app on any device and it restores from Drive on load — no tapping needed.<br/><br/>
-            <strong>To get this device in sync:</strong> the app auto-restores when you open it. Or tap Sync now.
+            Your journal saves to Google Drive on every write and auto-pulls when you switch to the Write tab.<br/>
+            Use <strong>↓ Pull latest</strong> any time to grab updates from another device.
           </p>
           <div className="drive-btns">
-            <button className="ex-btn goog" onClick={onSyncDrive} disabled={driveLoading}>{driveLoading?"…":"☁"} Sync now</button>
-            <button className="ex-btn goog-o" onClick={onRestoreDrive} disabled={driveLoading}>↓ Restore from Drive</button>
+            <button className="ex-btn goog" onClick={onPullDrive} disabled={driveLoading} style={{fontWeight:700}}>↓ Pull latest</button>
+            <button className="ex-btn goog" onClick={onSyncDrive} disabled={driveLoading}>☁↑ Push now</button>
+            <button className="ex-btn goog-o" onClick={onRestoreDrive} disabled={driveLoading}>↓ Full restore</button>
             <button className="ex-btn sec" onClick={onDisconnect} style={{fontSize:11}}>Disconnect</button>
           </div>
           {driveStatus&&<div className="drive-status">{driveStatus}</div>}
@@ -1698,12 +1698,14 @@ export default function App() {
   const selectDay = useCallback(date=>{setSelDate(date);setTab("write");setSidebarOpen(false);},[]);
   const onToday   = useCallback(()=>selectDay(today),[selectDay,today]);
 
+  const lastPullRef = useRef(0);
+
   const switchTab = useCallback(newTab=>{
-    if(newTab==="write"&&tab!=="write") setEntry(load(selDate));
+    if(newTab==="write"&&tab!=="write"){ setEntry(load(selDate)); doPullFromDrive(true); }
     if(newTab==="focus") setFocusTick(t=>t+1);
     if(newTab==="habits") setHabitsTick(t=>t+1);
     setTab(newTab);
-  },[tab,selDate]);
+  },[tab,selDate,doPullFromDrive]);
 
   // Interactive sync — called manually; also gets/caches token so auto-save kicks in after
   const doSyncDrive = useCallback(async()=>{
@@ -1738,6 +1740,31 @@ export default function App() {
     }catch(e){setDS("✗ "+(e.error_description||e.message||"Restore failed."));}
     finally{setDL(false);}
   },[selDate]);
+
+  // Pull latest from Drive (silent=true skips loading indicator + has 5-min cooldown)
+  const doPullFromDrive = useCallback(async(silent=false)=>{
+    if(!configured||!driveConnected) return;
+    if(silent && Date.now()-lastPullRef.current < 5*60*1000) return;
+    const token = getCachedToken() || await getTokenSilent();
+    if(!token){ setNeedsReauth(true); return; }
+    if(!silent){ setDL(true); setDS("Pulling latest…"); }
+    try{
+      const raw=await loadFromDrive(token);
+      if(!raw){ if(!silent) setDS("No backup found in Drive."); return; }
+      const data=Array.isArray(raw)?raw:Object.values(raw);
+      let count=0;
+      data.forEach(e=>{if(e.date){localStorage.setItem(KEY+e.date,JSON.stringify(migrate({...e})));count++;}});
+      lastPullRef.current=Date.now();
+      setEntries(allEntries());
+      setEntry(load(selDate));
+      if(!silent){
+        const t=new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
+        setLastSync(t);
+        setDS(`✓ Pulled latest — ${t}`);
+      }
+    }catch(e){ if(!silent) setDS("✗ Pull failed."); }
+    finally{ if(!silent) setDL(false); }
+  },[configured,driveConnected,selDate]);
 
   const disconnectDrive = useCallback(()=>{
     localStorage.removeItem(DRIVE_CONNECTED_KEY);
@@ -1782,9 +1809,14 @@ export default function App() {
             <span className="tb-date">{fmtDate(today,{weekday:"short",month:"short",day:"numeric"})}</span>
             {configured&&(
               driveConnected
-                ?<button className={`tb-sync${syncBtnClass?" "+syncBtnClass:""}`} onClick={doSyncDrive} disabled={driveLoading} title={driveStatus||"Sync to Drive"}>
-                    {driveLoading?"…":"☁"}
-                  </button>
+                ?<div style={{display:"flex",gap:4}}>
+                    <button className="tb-sync" onClick={()=>doPullFromDrive(false)} disabled={driveLoading} title="Pull latest from Drive" style={{fontSize:15}}>
+                      {driveLoading?"…":"↓☁"}
+                    </button>
+                    <button className={`tb-sync${syncBtnClass?" "+syncBtnClass:""}`} onClick={doSyncDrive} disabled={driveLoading} title={driveStatus||"Push to Drive"}>
+                      {driveLoading?"…":"☁↑"}
+                    </button>
+                  </div>
                 :<button className="tb-sync" onClick={doSyncDrive} disabled={driveLoading} title="Connect Google Drive for auto-sync">
                     {driveLoading?"…":"Connect Drive"}
                   </button>
@@ -1834,7 +1866,7 @@ export default function App() {
           <div style={{display:tab==="export"?"block":"none"}}>
             <ExportView entries={entries} onImport={()=>{setEntries(allEntries());setEntry(load(selDate));}}
               driveStatus={driveStatus} driveLoading={driveLoading} driveConnected={driveConnected}
-              onSyncDrive={doSyncDrive} onRestoreDrive={doRestoreDrive} onDisconnect={disconnectDrive}/>
+              onSyncDrive={doSyncDrive} onRestoreDrive={doRestoreDrive} onPullDrive={()=>doPullFromDrive(false)} onDisconnect={disconnectDrive}/>
           </div>
         </div>
 
