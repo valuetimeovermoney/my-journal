@@ -79,10 +79,30 @@ const bookMins     = b => (b.sessions||[]).reduce((acc,s)=>acc+calcMins(s.startT
 const blankMyQuote = () => ({ id:uid(), text:"", source:"", ts:nowTs() });
 const blankNote    = () => ({ id:uid(), ts:nowTs(), source:"", text:"" });
 
+// ─── Habits helpers ───────────────────────────────────────────────────────────
+const HABITS_KEY  = "myjournal_habits";
+const blankHabit  = () => ({ id:uid(), name:"" });
+const loadHabits  = () => { try{const r=localStorage.getItem(HABITS_KEY);return r?JSON.parse(r):[];}catch{} return []; };
+const saveHabits  = h => localStorage.setItem(HABITS_KEY, JSON.stringify(h));
+const dateKey     = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const calcHabitStreak = (habitId) => {
+  let s=0; const d=new Date();
+  while(true){
+    const k=dateKey(d);
+    try{ const e=JSON.parse(localStorage.getItem(KEY+k)||"{}"); if(e.habitChecks?.[habitId]){s++;d.setDate(d.getDate()-1);}else break; }catch{break;}
+  }
+  return s;
+};
+const getLast7 = (habitId, today) => {
+  return Array.from({length:7},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); const k=dateKey(d);
+    try{ const e=JSON.parse(localStorage.getItem(KEY+k)||"{}"); return {k,done:!!e.habitChecks?.[habitId],isToday:k===today,day:d.toLocaleDateString("en-US",{weekday:"short"}).slice(0,2)}; }catch{return {k,done:false,isToday:k===today,day:"?"};} });
+};
+
 const blankEntry = () => ({
   todos:            [{text:"",done:false}],
   diaryBlocks:      [],
   notes:            [],
+  habitChecks:      {},
   gratitude:        ["","",""],
   weeklyReflection: "",
   location:         DEFAULT_LOCATION,
@@ -116,6 +136,7 @@ const migrate = p => {
   if (!p.myQuotes)       p.myQuotes       = [];
   if (!p.investingNotes) p.investingNotes = [];
   if (!p.notes)          p.notes          = [];
+  if (!p.habitChecks)    p.habitChecks    = {};
   if (!p.gratitude)      p.gratitude      = ["","",""];
   while (p.gratitude.length < 3) p.gratitude.push("");
   return p;
@@ -322,6 +343,31 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .db-del:hover{color:#e07070;}
 .db-ta{width:100%;border:none;outline:none;padding:8px 14px 14px;font-family:'Playfair Display',serif;font-size:15px;line-height:1.85;color:#1a1a1a;resize:none;background:transparent;min-height:80px;}
 .db-ta::placeholder{color:#ccc;font-style:italic;}
+
+/* ── habits ── */
+.habits-list{display:flex;flex-direction:column;gap:7px;}
+.habit-row{display:flex;align-items:center;gap:10px;background:white;border-radius:8px;padding:11px 12px;border:1.5px solid transparent;transition:border-color .2s;}
+.habit-row.checked{opacity:.65;}
+.hck{width:18px;height:18px;border-radius:4px;border:1.5px solid #ccc;background:white;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .2s;font-size:9px;color:white;}
+.hck.on{background:#e8900a;border-color:#e8900a;}
+.habit-lbl{flex:1;font-size:14px;font-weight:300;color:#1a1a1a;user-select:none;cursor:pointer;}
+.habit-lbl.struck{text-decoration:line-through;color:#bbb;}
+.habit-score{font-size:11px;color:#e8900a;font-weight:500;margin-left:auto;}
+.ic-habit{background:#FDEBD0;}
+.habits-view{padding:28px 52px 80px;max-width:760px;}
+.hv-manage{background:white;border-radius:10px;padding:16px 18px;margin-bottom:22px;border:1.5px solid #fde0b0;}
+.hv-manage-hd{font-size:10px;color:#e8900a;text-transform:uppercase;letter-spacing:1.2px;font-weight:500;margin-bottom:14px;}
+.habit-edit-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.habit-stat-card{background:white;border-radius:10px;padding:14px 18px;margin-bottom:10px;border:1.5px solid #fde0b0;}
+.hsc-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.hsc-name{font-size:14px;font-weight:400;color:#1a1a1a;}
+.hsc-streak{font-size:12px;color:#e8900a;font-weight:500;}
+.habit-week{display:flex;gap:5px;flex-wrap:wrap;}
+.hwdot{width:32px;height:32px;border-radius:7px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:9px;gap:1px;}
+.hwdot.on{background:#e8900a;color:white;}
+.hwdot.off{background:#f5ede0;color:#ccc;}
+.hwdot.today-dot{box-shadow:0 0 0 2px #e8900a;}
+.hwdot-day{font-size:8px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;opacity:.7;}
 
 /* ── notes (takeaways) ── */
 .note-block{background:white;border-radius:8px;border:1.5px solid transparent;transition:border-color .2s,box-shadow .2s;overflow:hidden;}
@@ -933,6 +979,110 @@ const InvestingView = memo(({ onAddToday }) => {
   );
 });
 
+// ─── DailyHabits (Write tab checklist) ───────────────────────────────────────
+const DailyHabits = memo(({ checks, onChange }) => {
+  const [habits, setHabits] = useState(()=>loadHabits());
+  const named = habits.filter(h=>h.name.trim());
+  if(!named.length) return (
+    <div style={{color:"#ccc",fontSize:13,fontStyle:"italic",padding:"8px 0"}}>
+      No habits set up yet — add them in the <strong style={{color:"#e8900a",fontStyle:"normal"}}>Habits</strong> tab.
+    </div>
+  );
+  const done = named.filter(h=>checks[h.id]).length;
+  return (
+    <div>
+      <div className="habits-list">
+        {named.map(h=>(
+          <div key={h.id} className={`habit-row${checks[h.id]?" checked":""}`}
+            onClick={()=>onChange({...checks,[h.id]:!checks[h.id]})}>
+            <div className={`hck${checks[h.id]?" on":""}`}>{checks[h.id]&&"✓"}</div>
+            <span className={`habit-lbl${checks[h.id]?" struck":""}`}>{h.name}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{marginTop:8,fontSize:12,color:"#e8900a",fontWeight:500,textAlign:"right"}}>
+        {done}/{named.length} done today
+      </div>
+    </div>
+  );
+});
+
+// ─── HabitsView (Habits tab — manage + streaks) ───────────────────────────────
+const HabitsView = memo(({ today, refreshKey }) => {
+  const [habits, setHabits] = useState(()=>loadHabits());
+  const [tick,   setTick]   = useState(0);
+
+  useEffect(()=>setHabits(loadHabits()),[refreshKey]);
+
+  const addHabit = ()=>{ const h=[...habits,blankHabit()]; setHabits(h); saveHabits(h); };
+  const updHabit = (id,name)=>{ const h=habits.map(x=>x.id===id?{...x,name}:x); setHabits(h); saveHabits(h); };
+  const delHabit = id=>{ const h=habits.filter(x=>x.id!==id); setHabits(h); saveHabits(h); };
+
+  const named = habits.filter(h=>h.name.trim());
+
+  const HABIT_QUOTES = [
+    {q:"We are what we repeatedly do. Excellence, then, is not an act, but a habit.", a:"Aristotle"},
+    {q:"Motivation gets you going. Habit keeps you growing.", a:"John C. Maxwell"},
+    {q:"You do not rise to the level of your goals. You fall to the level of your systems.", a:"James Clear"},
+    {q:"Small daily improvements are the key to staggering long-term results.", a:"Robin Sharma"},
+    {q:"Success is the product of daily habits — not once-in-a-lifetime transformations.", a:"James Clear"},
+    {q:"The secret of your future is hidden in your daily routine.", a:"Mike Murdock"},
+    {q:"Chains of habit are too light to be felt until they are too heavy to be broken.", a:"Warren Buffett"},
+  ];
+  const hq = HABIT_QUOTES[new Date().getDay() % HABIT_QUOTES.length];
+
+  return (
+    <div className="habits-view">
+      <div className="eyebrow">Daily &amp; Weekly</div>
+      <h1 className="pg-title">My <em>Habits</em></h1>
+      <div style={{background:"#fff8ee",border:"1.5px solid #fde0b0",borderRadius:10,padding:"14px 18px",marginBottom:22,marginTop:6}}>
+        <div style={{fontSize:13,fontStyle:"italic",color:"#555",lineHeight:1.6}}>"{hq.q}"</div>
+        <div style={{fontSize:11,color:"#e8900a",fontWeight:600,marginTop:6}}>— {hq.a}</div>
+      </div>
+
+      {/* Manage list */}
+      <div className="hv-manage">
+        <div className="hv-manage-hd">Your habits</div>
+        {habits.map(h=>(
+          <div key={h.id} className="habit-edit-row">
+            <input className="bf-inp" style={{flex:1}} value={h.name} placeholder="e.g. Morning workout, Read 20 min, Meditate…"
+              onChange={e=>updHabit(h.id,e.target.value)}/>
+            <button className="book-del" onClick={()=>delHabit(h.id)}>×</button>
+          </div>
+        ))}
+        <button className="add-row" style={{marginTop:4}} onClick={addHabit}>+ Add a habit</button>
+      </div>
+
+      {/* Streaks + 7-day history */}
+      {named.length>0&&(
+        <>
+          <div style={{fontSize:10,color:"#bbb",textTransform:"uppercase",letterSpacing:"1.5px",marginBottom:12}}>Streaks &amp; last 7 days</div>
+          {named.map(h=>{
+            const streak=calcHabitStreak(h.id);
+            const dots=getLast7(h.id,today);
+            return (
+              <div key={h.id} className="habit-stat-card">
+                <div className="hsc-hd">
+                  <span className="hsc-name">{h.name}</span>
+                  <span className="hsc-streak">{streak>0?`🔥 ${streak} day streak`:"—"}</span>
+                </div>
+                <div className="habit-week">
+                  {dots.map(({k,done,isToday,day})=>(
+                    <div key={k} className={`hwdot${done?" on":" off"}${isToday?" today-dot":""}`}>
+                      <span>{done?"✓":""}</span>
+                      <span className="hwdot-day">{day}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+});
+
 // ─── FocusView (all todos across all days) ────────────────────────────────────
 const FocusView = memo(({ today, refreshKey, onSelectDay }) => {
   const [localTick, setLocalTick] = useState(0);
@@ -1006,6 +1156,7 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
   const setBooks         = useCallback(books=>setEntry(e=>({...e,books})),[setEntry]);
   const setMyQuotes      = useCallback(myQuotes=>setEntry(e=>({...e,myQuotes})),[setEntry]);
   const setNotes         = useCallback(notes=>setEntry(e=>({...e,notes})),[setEntry]);
+  const setHabitChecks   = useCallback(habitChecks=>setEntry(e=>({...e,habitChecks})),[setEntry]);
   const setInvestNotes   = useCallback(investingNotes=>setEntry(e=>({...e,investingNotes})),[setEntry]);
 
   const handleLocChange = useCallback(val=>{
@@ -1196,6 +1347,11 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
         <div className="section">
           <div className="sec-hd"><div className="sec-ic ic-todo">✓</div><div className="sec-ttl">Today's Focus</div><div className="sec-hint">keep it short</div></div>
           <TodoList todos={entry.todos} onChange={setTodos}/>
+        </div>
+
+        <div className="section">
+          <div className="sec-hd"><div className="sec-ic ic-habit">◐</div><div className="sec-ttl">Habits</div><div className="sec-hint">daily routine</div></div>
+          <DailyHabits checks={entry.habitChecks||{}} onChange={setHabitChecks}/>
         </div>
 
         <div className="section">
@@ -1454,6 +1610,7 @@ const NAVS = [
   {key:"month",  icon:"◫",  label:"Month"},
   {key:"search", icon:"⌕",  label:"Search"},
   {key:"invest", icon:"◈",  label:"Invest"},
+  {key:"habits", icon:"◐",  label:"Habits"},
   {key:"export", icon:"↗",  label:"Export"},
 ];
 
@@ -1468,6 +1625,7 @@ export default function App() {
   const [savedShow,     setSavedShow]   = useState(false);
   const [calMonth,      setCalMonth]    = useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
   const [focusTick,     setFocusTick]   = useState(0);
+  const [habitsTick,    setHabitsTick]  = useState(0);
   const [driveStatus,   setDS]          = useState("");
   const [driveLoading,  setDL]          = useState(false);
   const [lastSync,      setLastSync]    = useState("");
@@ -1542,6 +1700,7 @@ export default function App() {
   const switchTab = useCallback(newTab=>{
     if(newTab==="write"&&tab!=="write") setEntry(load(selDate));
     if(newTab==="focus") setFocusTick(t=>t+1);
+    if(newTab==="habits") setHabitsTick(t=>t+1);
     setTab(newTab);
   },[tab,selDate]);
 
@@ -1656,6 +1815,9 @@ export default function App() {
           </div>
           <div style={{display:tab==="invest"?"block":"none"}}>
             <InvestingView onAddToday={onAddInvestingToday}/>
+          </div>
+          <div style={{display:tab==="habits"?"block":"none"}}>
+            <HabitsView today={today} refreshKey={habitsTick}/>
           </div>
           <div style={{display:tab==="export"?"block":"none"}}>
             <ExportView entries={entries} onImport={()=>{setEntries(allEntries());setEntry(load(selDate));}}
