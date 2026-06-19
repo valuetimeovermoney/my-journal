@@ -1631,6 +1631,7 @@ export default function App() {
   const [lastSync,      setLastSync]    = useState("");
   // driveConnected: user has authorized Drive at least once (persisted in localStorage)
   const [driveConnected,setDriveConn]  = useState(()=>!!localStorage.getItem(DRIVE_CONNECTED_KEY));
+  const [driveNeedsReauth, setNeedsReauth] = useState(false);
   const saveTimer  = useRef(null);
   const autoSTimer = useRef(null);
   const mainRef    = useRef(null);
@@ -1641,7 +1642,7 @@ export default function App() {
     if(!configured||!driveConnected) return;
     (async()=>{
       const token=await getTokenSilent();
-      if(!token) return; // session expired — user will reconnect on next manual sync
+      if(!token){ setNeedsReauth(true); return; }
       try{
         const raw=await loadFromDrive(token);
         if(!raw) return;
@@ -1711,6 +1712,7 @@ export default function App() {
       await saveToDrive(entries); // getToken() called inside, caches token
       localStorage.setItem(DRIVE_CONNECTED_KEY,"1");
       setDriveConn(true);
+      setNeedsReauth(false);
       const t=new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
       setDS(`✓ Saved to Drive — ${t}`);
       setLastSync(t);
@@ -1800,6 +1802,16 @@ export default function App() {
                   </button>
             )}
           </div>
+
+          {driveNeedsReauth&&(
+            <div style={{background:"#fff8e1",borderBottom:"1.5px solid #ffe082",padding:"10px 20px",display:"flex",alignItems:"center",gap:12,fontSize:13}}>
+              <span>☁ Drive sync needs a quick reconnect on this device.</span>
+              <button onClick={doSyncDrive} disabled={driveLoading}
+                style={{background:"#e8900a",color:"#fff",border:"none",borderRadius:6,padding:"5px 14px",fontWeight:600,cursor:"pointer",fontSize:12}}>
+                {driveLoading?"…":"Reconnect"}
+              </button>
+            </div>
+          )}
 
           <div style={{display:tab==="write"?"block":"none"}}>
             <WriteView entry={entry} setEntry={setEntry} selectedDate={selDate} today={today} isEdit={editMode} setEditMode={setEditMode} stats={stats}/>
