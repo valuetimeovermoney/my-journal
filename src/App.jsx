@@ -1700,6 +1700,31 @@ export default function App() {
 
   const lastPullRef = useRef(0);
 
+  // Pull latest from Drive (silent=true skips loading indicator + has 5-min cooldown)
+  const doPullFromDrive = useCallback(async(silent=false)=>{
+    if(!configured||!driveConnected) return;
+    if(silent && Date.now()-lastPullRef.current < 5*60*1000) return;
+    const token = getCachedToken() || await getTokenSilent();
+    if(!token){ setNeedsReauth(true); return; }
+    if(!silent){ setDL(true); setDS("Pulling latest…"); }
+    try{
+      const raw=await loadFromDrive(token);
+      if(!raw){ if(!silent) setDS("No backup found in Drive."); return; }
+      const data=Array.isArray(raw)?raw:Object.values(raw);
+      let count=0;
+      data.forEach(e=>{if(e.date){localStorage.setItem(KEY+e.date,JSON.stringify(migrate({...e})));count++;}});
+      lastPullRef.current=Date.now();
+      setEntries(allEntries());
+      setEntry(load(selDate));
+      if(!silent){
+        const t=new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
+        setLastSync(t);
+        setDS(`✓ Pulled latest — ${t}`);
+      }
+    }catch(e){ if(!silent) setDS("✗ Pull failed."); }
+    finally{ if(!silent) setDL(false); }
+  },[configured,driveConnected,selDate]);
+
   const switchTab = useCallback(newTab=>{
     if(newTab==="write"&&tab!=="write"){ setEntry(load(selDate)); doPullFromDrive(true); }
     if(newTab==="focus") setFocusTick(t=>t+1);
@@ -1740,31 +1765,6 @@ export default function App() {
     }catch(e){setDS("✗ "+(e.error_description||e.message||"Restore failed."));}
     finally{setDL(false);}
   },[selDate]);
-
-  // Pull latest from Drive (silent=true skips loading indicator + has 5-min cooldown)
-  const doPullFromDrive = useCallback(async(silent=false)=>{
-    if(!configured||!driveConnected) return;
-    if(silent && Date.now()-lastPullRef.current < 5*60*1000) return;
-    const token = getCachedToken() || await getTokenSilent();
-    if(!token){ setNeedsReauth(true); return; }
-    if(!silent){ setDL(true); setDS("Pulling latest…"); }
-    try{
-      const raw=await loadFromDrive(token);
-      if(!raw){ if(!silent) setDS("No backup found in Drive."); return; }
-      const data=Array.isArray(raw)?raw:Object.values(raw);
-      let count=0;
-      data.forEach(e=>{if(e.date){localStorage.setItem(KEY+e.date,JSON.stringify(migrate({...e})));count++;}});
-      lastPullRef.current=Date.now();
-      setEntries(allEntries());
-      setEntry(load(selDate));
-      if(!silent){
-        const t=new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
-        setLastSync(t);
-        setDS(`✓ Pulled latest — ${t}`);
-      }
-    }catch(e){ if(!silent) setDS("✗ Pull failed."); }
-    finally{ if(!silent) setDL(false); }
-  },[configured,driveConnected,selDate]);
 
   const disconnectDrive = useCallback(()=>{
     localStorage.removeItem(DRIVE_CONNECTED_KEY);
