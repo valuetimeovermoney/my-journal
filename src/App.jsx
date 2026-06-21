@@ -1,4 +1,23 @@
-import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo, Component } from "react";
+
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = {err:null}; }
+  static getDerivedStateFromError(err) { return {err}; }
+  render() {
+    if(this.state.err) return (
+      <div style={{padding:40,fontFamily:"system-ui,sans-serif",maxWidth:480,margin:"80px auto",textAlign:"center"}}>
+        <div style={{fontSize:40,marginBottom:16}}>⚠️</div>
+        <h2 style={{color:"#c0392b",marginBottom:8}}>Something went wrong</h2>
+        <p style={{color:"#666",marginBottom:24,fontSize:14}}>{this.state.err.message}</p>
+        <button onClick={()=>window.location.reload()}
+          style={{background:"#e8900a",color:"#fff",border:"none",borderRadius:8,padding:"10px 28px",cursor:"pointer",fontWeight:700,fontSize:15}}>
+          Reload App
+        </button>
+      </div>
+    );
+    return this.props.children;
+  }
+}
 
 // ─── Google OAuth ─────────────────────────────────────────────────────────────
 // Setup (5 min, one-time):
@@ -124,6 +143,7 @@ const migrate = p => {
     }
     delete p.reading;
   }
+  if (!Array.isArray(p.books)) p.books = [];
   // migrate old books to sessions array format
   p.books = p.books.map(b => {
     if (!b.sessions) {
@@ -1704,8 +1724,8 @@ export default function App() {
               const merged=await mergeAndSaveToDrive(updated,token);
               // Persist any Drive-only entries into local storage
               const localDates=new Set(updated.map(e=>e.date));
-              merged.filter(e=>!localDates.has(e.date)).forEach(e=>
-                localStorage.setItem(KEY+e.date,JSON.stringify(migrate({...e}))));
+              merged.filter(e=>!localDates.has(e.date)).forEach(({date,...rest})=>
+                localStorage.setItem(KEY+date,JSON.stringify(migrate(rest))));
               if(merged.length>updated.length) setEntries(allEntries());
               const t=new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
               setLastSync(t);
@@ -1823,7 +1843,7 @@ export default function App() {
   const syncBtnClass = driveConnected?"connected":driveStatus.startsWith("✓")?"synced":driveStatus.startsWith("✗")?"error":"";
 
   return (
-    <>
+    <ErrorBoundary>
       <style>{css}</style>
       <div className="app">
         <div className={`overlay${sidebarOpen?" open":""}`} onClick={()=>setSidebarOpen(false)}/>
@@ -1905,6 +1925,6 @@ export default function App() {
 
         <div className={`toast${savedShow?" show":""}`}>✓ Saved</div>
       </div>
-    </>
+    </ErrorBoundary>
   );
 }
