@@ -218,6 +218,24 @@ const loadFromDrive = async (token) => {
     {headers:{"Authorization":`Bearer ${token}`}}).then(r=>r.json());
 };
 
+// Merge local entries with Drive entries, then save back to Drive.
+// Local entry wins for any date that exists locally; Drive fills in dates missing locally.
+const mergeAndSaveToDrive = async (localEntries, token) => {
+  if(!token) token=await getToken();
+  let toSave = localEntries;
+  try {
+    const raw = await loadFromDrive(token);
+    if(raw){
+      const driveData = Array.isArray(raw)?raw:Object.values(raw);
+      const localDates = new Set(localEntries.map(e=>e.date));
+      const extra = driveData.filter(e=>e.date&&!localDates.has(e.date));
+      if(extra.length) toSave = [...localEntries, ...extra];
+    }
+  } catch {}
+  await saveToDrive(toSave, token);
+  return toSave;
+};
+
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 const css = `
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap');
@@ -1683,7 +1701,12 @@ export default function App() {
           clearTimeout(autoSTimer.current);
           autoSTimer.current=setTimeout(async()=>{
             try{
-              await saveToDrive(updated,token);
+              const merged=await mergeAndSaveToDrive(updated,token);
+              // Persist any Drive-only entries into local storage
+              const localDates=new Set(updated.map(e=>e.date));
+              merged.filter(e=>!localDates.has(e.date)).forEach(e=>
+                localStorage.setItem(KEY+e.date,JSON.stringify(migrate({...e}))));
+              if(merged.length>updated.length) setEntries(allEntries());
               const t=new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
               setLastSync(t);
               setDS(`✓ Auto-saved — ${t}`);
@@ -1736,7 +1759,11 @@ export default function App() {
   const doSyncDrive = useCallback(async()=>{
     setDL(true); setDS("Syncing…");
     try{
-      await saveToDrive(entries); // getToken() called inside, caches token
+      const merged=await mergeAndSaveToDrive(entries); // getToken() called inside, caches token
+      const localDates=new Set(entries.map(e=>e.date));
+      merged.filter(e=>!localDates.has(e.date)).forEach(e=>
+        localStorage.setItem(KEY+e.date,JSON.stringify(migrate({...e}))));
+      if(merged.length>entries.length){ setEntries(allEntries()); setEntry(load(selDate)); }
       localStorage.setItem(DRIVE_CONNECTED_KEY,"1");
       setDriveConn(true);
       setNeedsReauth(false);
