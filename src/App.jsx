@@ -132,8 +132,17 @@ const blankEntry = () => ({
 
 const migrate = p => {
   if (!p || typeof p !== "object") return blankEntry();
-  if (!p.diaryBlocks)      p.diaryBlocks      = [];
-  if (p.location == null)  p.location         = DEFAULT_LOCATION; // null/undefined only; keep ""
+  // Ensure all array fields are actually arrays (guard against corrupted/old data)
+  if (!Array.isArray(p.todos))         p.todos         = [{text:"",done:false}];
+  if (!Array.isArray(p.diaryBlocks))   p.diaryBlocks   = [];
+  if (!Array.isArray(p.notes))         p.notes         = [];
+  if (!Array.isArray(p.myQuotes))      p.myQuotes      = [];
+  if (!Array.isArray(p.investingNotes))p.investingNotes= [];
+  if (!Array.isArray(p.gratitude))     p.gratitude     = ["","",""];
+  while (p.gratitude.length < 3)       p.gratitude.push("");
+  if (!p.habitChecks || typeof p.habitChecks !== "object" || Array.isArray(p.habitChecks))
+                                        p.habitChecks   = {};
+  if (p.location == null)              p.location      = DEFAULT_LOCATION;
   // old single reading → books array
   if (!p.books) {
     if (p.reading?.book?.trim()) {
@@ -146,19 +155,13 @@ const migrate = p => {
   if (!Array.isArray(p.books)) p.books = [];
   // migrate old books to sessions array format
   p.books = p.books.map(b => {
+    if (!b || typeof b !== "object") return null;
     if (!b.sessions) {
-      // covers old {startTime, endTime} and {minutes} formats
       const session = { id:uid(), startTime:b.startTime||"", endTime:b.endTime||"" };
       return { id:b.id||uid(), title:b.title||"", author:b.author||"", sessions:[session], notes:b.notes||"" };
     }
     return b;
-  });
-  if (!p.myQuotes)       p.myQuotes       = [];
-  if (!p.investingNotes) p.investingNotes = [];
-  if (!p.notes)          p.notes          = [];
-  if (!p.habitChecks)    p.habitChecks    = {};
-  if (!p.gratitude)      p.gratitude      = ["","",""];
-  while (p.gratitude.length < 3) p.gratitude.push("");
+  }).filter(Boolean);
   return p;
 };
 
@@ -168,7 +171,12 @@ const allEntries = () => {
   const out=[];
   for(let i=0;i<localStorage.length;i++){
     const k=localStorage.key(i);
-    if(k.startsWith(KEY)){try{out.push({date:k.replace(KEY,""),...JSON.parse(localStorage.getItem(k))});}catch{}}
+    if(k.startsWith(KEY)){
+      try{
+        const parsed=JSON.parse(localStorage.getItem(k));
+        out.push({...migrate(parsed), date:k.replace(KEY,"")});
+      }catch{}
+    }
   }
   return out.sort((a,b)=>b.date.localeCompare(a.date));
 };
