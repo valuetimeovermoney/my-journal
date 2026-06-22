@@ -101,7 +101,7 @@ const blankNote    = () => ({ id:uid(), ts:nowTs(), source:"", text:"" });
 // ─── Habits helpers ───────────────────────────────────────────────────────────
 const HABITS_KEY  = "myjournal_habits";
 const blankHabit  = () => ({ id:uid(), name:"" });
-const loadHabits  = () => { try{const r=localStorage.getItem(HABITS_KEY);return r?JSON.parse(r):[];}catch{} return []; };
+const loadHabits  = () => { try{const r=localStorage.getItem(HABITS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
 const saveHabits  = h => localStorage.setItem(HABITS_KEY, JSON.stringify(h));
 const dateKey     = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const calcHabitStreak = (habitId) => {
