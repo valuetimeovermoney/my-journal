@@ -228,7 +228,7 @@ const getDriveFileId = async token => {
 };
 const saveToDrive = async (entries, token) => {
   if(!token) token=await getToken();
-  const content=JSON.stringify(entries,null,2);
+  const content=JSON.stringify({v:2,entries,habits:loadHabits()},null,2);
   const fileId=await getDriveFileId(token);
   let url;
   if(!fileId){
@@ -244,8 +244,10 @@ const loadFromDrive = async (token) => {
   if(!token) token=await getToken();
   const fileId=await getDriveFileId(token);
   if(!fileId) return null;
-  return fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+  const raw=await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
     {headers:{"Authorization":`Bearer ${token}`}}).then(r=>r.json());
+  if(Array.isArray(raw)) return {entries:raw,habits:[]};
+  return raw;
 };
 
 // Merge local entries with Drive entries, then save back to Drive.
@@ -254,12 +256,19 @@ const mergeAndSaveToDrive = async (localEntries, token) => {
   if(!token) token=await getToken();
   let toSave = localEntries;
   try {
-    const raw = await loadFromDrive(token);
-    if(raw){
-      const driveData = Array.isArray(raw)?raw:Object.values(raw);
+    const driveData = await loadFromDrive(token);
+    if(driveData){
+      const driveEntries = Array.isArray(driveData.entries)?driveData.entries:[];
       const localDates = new Set(localEntries.map(e=>e.date));
-      const extra = driveData.filter(e=>e.date && DATE_RE.test(e.date) && !localDates.has(e.date));
+      const extra = driveEntries.filter(e=>e.date && DATE_RE.test(e.date) && !localDates.has(e.date));
       if(extra.length) toSave = [...localEntries, ...extra];
+      const driveHabits = Array.isArray(driveData.habits)?driveData.habits:[];
+      if(driveHabits.length){
+        const local=loadHabits();
+        const localIds=new Set(local.map(h=>h.id));
+        const extraH=driveHabits.filter(h=>h.id&&!localIds.has(h.id));
+        if(extraH.length) saveHabits([...local,...extraH]);
+      }
     }
   } catch {}
   await saveToDrive(toSave, token);
@@ -1028,8 +1037,9 @@ const InvestingView = memo(({ onAddToday }) => {
 });
 
 // ─── DailyHabits (Write tab checklist) ───────────────────────────────────────
-const DailyHabits = memo(({ checks, onChange }) => {
+const DailyHabits = memo(({ checks, onChange, refreshKey }) => {
   const [habits, setHabits] = useState(()=>loadHabits());
+  useEffect(()=>setHabits(loadHabits()),[refreshKey]);
   const named = habits.filter(h=>h.name.trim());
   if(!named.length) return (
     <div style={{color:"#ccc",fontSize:13,fontStyle:"italic",padding:"8px 0"}}>
@@ -1188,7 +1198,7 @@ const FocusView = memo(({ today, refreshKey, onSelectDay }) => {
 });
 
 // ─── WriteView ────────────────────────────────────────────────────────────────
-const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditMode, stats }) => {
+const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditMode, stats, habitsRefreshKey }) => {
   const isToday = selectedDate === today;
   const show    = isEdit || isToday;
 
@@ -1399,7 +1409,7 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
 
         <div className="section">
           <div className="sec-hd"><div className="sec-ic ic-habit">◐</div><div className="sec-ttl">Habits</div><div className="sec-hint">daily routine</div></div>
-          <DailyHabits checks={entry.habitChecks||{}} onChange={setHabitChecks}/>
+          <DailyHabits checks={entry.habitChecks||{}} onChange={setHabitChecks} refreshKey={habitsRefreshKey}/>
         </div>
 
         <div className="section">
@@ -1692,11 +1702,18 @@ export default function App() {
       const token=await getTokenSilent();
       if(!token){ setNeedsReauth(true); return; }
       try{
-        const raw=await loadFromDrive(token);
-        if(!raw) return;
-        const data=Array.isArray(raw)?raw:Object.values(raw);
+        const driveData=await loadFromDrive(token);
+        if(!driveData) return;
+        const data=Array.isArray(driveData.entries)?driveData.entries:[];
         let count=0;
         data.forEach(e=>{if(e.date && DATE_RE.test(e.date)){const {date,...rest}=e;localStorage.setItem(KEY+date,JSON.stringify(migrate(rest)));count++;}});
+        const driveHabits=Array.isArray(driveData.habits)?driveData.habits:[];
+        if(driveHabits.length){
+          const local=loadHabits();
+          const localIds=new Set(local.map(h=>h.id));
+          const extraH=driveHabits.filter(h=>h.id&&!localIds.has(h.id));
+          if(extraH.length){saveHabits([...local,...extraH]);setHabitsTick(t=>t+1);}
+        }
         if(count>0){
           setEntries(allEntries());
           setEntry(load(selDate));
@@ -1761,11 +1778,18 @@ export default function App() {
     if(!token){ setNeedsReauth(true); return; }
     if(!silent){ setDL(true); setDS("Pulling latest…"); }
     try{
-      const raw=await loadFromDrive(token);
-      if(!raw){ if(!silent) setDS("No backup found in Drive."); return; }
-      const data=Array.isArray(raw)?raw:Object.values(raw);
+      const driveData=await loadFromDrive(token);
+      if(!driveData){ if(!silent) setDS("No backup found in Drive."); return; }
+      const data=Array.isArray(driveData.entries)?driveData.entries:[];
       let count=0;
       data.forEach(e=>{if(e.date && DATE_RE.test(e.date)){const {date,...rest}=e;localStorage.setItem(KEY+date,JSON.stringify(migrate(rest)));count++;}});
+      const driveHabits=Array.isArray(driveData.habits)?driveData.habits:[];
+      if(driveHabits.length){
+        const local=loadHabits();
+        const localIds=new Set(local.map(h=>h.id));
+        const extraH=driveHabits.filter(h=>h.id&&!localIds.has(h.id));
+        if(extraH.length){saveHabits([...local,...extraH]);setHabitsTick(t=>t+1);}
+      }
       lastPullRef.current=Date.now();
       setEntries(allEntries());
       setEntry(load(selDate));
@@ -1789,11 +1813,12 @@ export default function App() {
   const doSyncDrive = useCallback(async()=>{
     setDL(true); setDS("Syncing…");
     try{
-      const merged=await mergeAndSaveToDrive(entries); // getToken() called inside, caches token
+      const merged=await mergeAndSaveToDrive(entries); // getToken() called inside, caches token; also syncs habits
       const localDates=new Set(entries.map(e=>e.date));
       merged.filter(e=>!localDates.has(e.date)).forEach(e=>
         localStorage.setItem(KEY+e.date,JSON.stringify(migrate({...e}))));
       if(merged.length>entries.length){ setEntries(allEntries()); setEntry(load(selDate)); }
+      setHabitsTick(t=>t+1);
       localStorage.setItem(DRIVE_CONNECTED_KEY,"1");
       setDriveConn(true);
       setNeedsReauth(false);
@@ -1807,11 +1832,18 @@ export default function App() {
   const doRestoreDrive = useCallback(async()=>{
     setDL(true); setDS("Restoring from Drive…");
     try{
-      const raw=await loadFromDrive(); // interactive token
-      if(!raw){setDS("No backup found in Drive.");return;}
-      const data=Array.isArray(raw)?raw:Object.values(raw);
+      const driveData=await loadFromDrive(); // interactive token
+      if(!driveData){setDS("No backup found in Drive.");return;}
+      const data=Array.isArray(driveData.entries)?driveData.entries:[];
       let count=0;
       data.forEach(e=>{if(e.date && DATE_RE.test(e.date)){const {date,...rest}=e;localStorage.setItem(KEY+date,JSON.stringify(migrate(rest)));count++;}});
+      const driveHabits=Array.isArray(driveData.habits)?driveData.habits:[];
+      if(driveHabits.length){
+        const local=loadHabits();
+        const localIds=new Set(local.map(h=>h.id));
+        const extraH=driveHabits.filter(h=>h.id&&!localIds.has(h.id));
+        if(extraH.length){saveHabits([...local,...extraH]);setHabitsTick(t=>t+1);}
+      }
       setEntries(allEntries());
       setEntry(load(selDate));
       localStorage.setItem(DRIVE_CONNECTED_KEY,"1");
@@ -1903,7 +1935,7 @@ export default function App() {
           )}
 
           <div style={{display:tab==="write"?"block":"none"}}>
-            <WriteView entry={entry} setEntry={setEntry} selectedDate={selDate} today={today} isEdit={editMode} setEditMode={setEditMode} stats={stats}/>
+            <WriteView entry={entry} setEntry={setEntry} selectedDate={selDate} today={today} isEdit={editMode} setEditMode={setEditMode} stats={stats} habitsRefreshKey={habitsTick}/>
           </div>
           <div style={{display:tab==="focus"?"block":"none"}}>
             <FocusView today={today} refreshKey={focusTick} onSelectDay={date=>{selectDay(date);switchTab("write");}}/>
