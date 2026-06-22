@@ -167,14 +167,16 @@ const migrate = p => {
 
 const load  = dk => { try { const r=localStorage.getItem(KEY+dk); if(r) return migrate(JSON.parse(r)); } catch {} return blankEntry(); };
 const save  = (dk,data) => localStorage.setItem(KEY+dk, JSON.stringify(data));
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const allEntries = () => {
   const out=[];
   for(let i=0;i<localStorage.length;i++){
     const k=localStorage.key(i);
-    if(k.startsWith(KEY)){
+    const date = k.startsWith(KEY) ? k.slice(KEY.length) : "";
+    if(date && DATE_RE.test(date)){
       try{
         const parsed=JSON.parse(localStorage.getItem(k));
-        out.push({...migrate(parsed), date:k.replace(KEY,"")});
+        out.push({...migrate(parsed), date});
       }catch{}
     }
   }
@@ -256,7 +258,7 @@ const mergeAndSaveToDrive = async (localEntries, token) => {
     if(raw){
       const driveData = Array.isArray(raw)?raw:Object.values(raw);
       const localDates = new Set(localEntries.map(e=>e.date));
-      const extra = driveData.filter(e=>e.date&&!localDates.has(e.date));
+      const extra = driveData.filter(e=>e.date && DATE_RE.test(e.date) && !localDates.has(e.date));
       if(extra.length) toSave = [...localEntries, ...extra];
     }
   } catch {}
@@ -1694,7 +1696,7 @@ export default function App() {
         if(!raw) return;
         const data=Array.isArray(raw)?raw:Object.values(raw);
         let count=0;
-        data.forEach(e=>{if(e.date){localStorage.setItem(KEY+e.date,JSON.stringify(migrate({...e})));count++;}});
+        data.forEach(e=>{if(e.date && DATE_RE.test(e.date)){const {date,...rest}=e;localStorage.setItem(KEY+date,JSON.stringify(migrate(rest)));count++;}});
         if(count>0){
           setEntries(allEntries());
           setEntry(load(selDate));
@@ -1763,7 +1765,7 @@ export default function App() {
       if(!raw){ if(!silent) setDS("No backup found in Drive."); return; }
       const data=Array.isArray(raw)?raw:Object.values(raw);
       let count=0;
-      data.forEach(e=>{if(e.date){localStorage.setItem(KEY+e.date,JSON.stringify(migrate({...e})));count++;}});
+      data.forEach(e=>{if(e.date && DATE_RE.test(e.date)){const {date,...rest}=e;localStorage.setItem(KEY+date,JSON.stringify(migrate(rest)));count++;}});
       lastPullRef.current=Date.now();
       setEntries(allEntries());
       setEntry(load(selDate));
@@ -1809,7 +1811,7 @@ export default function App() {
       if(!raw){setDS("No backup found in Drive.");return;}
       const data=Array.isArray(raw)?raw:Object.values(raw);
       let count=0;
-      data.forEach(e=>{if(e.date){localStorage.setItem(KEY+e.date,JSON.stringify(migrate({...e})));count++;}});
+      data.forEach(e=>{if(e.date && DATE_RE.test(e.date)){const {date,...rest}=e;localStorage.setItem(KEY+date,JSON.stringify(migrate(rest)));count++;}});
       setEntries(allEntries());
       setEntry(load(selDate));
       localStorage.setItem(DRIVE_CONNECTED_KEY,"1");
