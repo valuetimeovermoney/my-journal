@@ -281,14 +281,14 @@ const css = `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;overflow:hidden;}
 body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;background:#F5F0E8;color:#1a1a1a;line-height:1.6;}
-.app{display:flex;height:100vh;overflow:hidden;position:relative;}
+.app{display:flex;height:100vh;height:100dvh;overflow:hidden;position:relative;}
 
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;animation:fadeIn .2s ease;}
 .overlay.open{display:block;}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 
 /* ── sidebar ── */
-.sidebar{width:260px;flex-shrink:0;background:#1a1a1a;color:#F5F0E8;display:flex;flex-direction:column;height:100vh;overflow-y:auto;position:relative;z-index:30;transition:transform .3s ease;}
+.sidebar{width:260px;flex-shrink:0;background:#1a1a1a;color:#F5F0E8;display:flex;flex-direction:column;height:100vh;height:100dvh;overflow-y:auto;position:relative;z-index:30;transition:transform .3s ease;}
 .sb-head{padding:26px 20px 18px;border-bottom:1px solid #2e2e2e;}
 .sb-logo{font-family:'Playfair Display',serif;font-size:20px;font-weight:600;letter-spacing:-.3px;margin-bottom:2px;}
 .sb-sub{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:1.5px;}
@@ -632,6 +632,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .main{padding-bottom:64px;}
   .toast{bottom:80px;right:16px;}
   .book-fields{grid-template-columns:1fr;}
+  /* Prevent iOS auto-zoom on input focus (triggered when font-size < 16px) */
+  .ti,.loc-inp,.db-ta,.inv-ta,.bf-inp,.mq-ta,.gi{font-size:16px;}
 }
 `;
 
