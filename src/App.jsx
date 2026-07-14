@@ -127,7 +127,6 @@ const blankEntry = () => ({
   location:         DEFAULT_LOCATION,
   books:            [],
   myQuotes:         [],
-  investingNotes:   [],
 });
 
 const migrate = p => {
@@ -137,7 +136,6 @@ const migrate = p => {
   if (!Array.isArray(p.diaryBlocks))   p.diaryBlocks   = [];
   if (!Array.isArray(p.notes))         p.notes         = [];
   if (!Array.isArray(p.myQuotes))      p.myQuotes      = [];
-  if (!Array.isArray(p.investingNotes))p.investingNotes= [];
   if (!Array.isArray(p.gratitude))     p.gratitude     = ["","",""];
   while (p.gratitude.length < 3)       p.gratitude.push("");
   if (!p.habitChecks || typeof p.habitChecks !== "object" || Array.isArray(p.habitChecks))
@@ -373,7 +371,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .sec-ic{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;}
 .ic-todo{background:#EDE8DE;} .ic-diary{background:#E2ECDB;} .ic-grat{background:#E4DBED;}
 .ic-ref{background:#DBE4ED;} .ic-read{background:#DBE8E8;} .ic-quote{background:#F0E8D8;}
-.ic-invest{background:#E2F0E3;}
 .sec-ttl{font-family:'Playfair Display',serif;font-size:17px;font-weight:600;}
 .sec-hint{font-size:10px;color:#bbb;margin-left:auto;}
 
@@ -438,21 +435,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .past-note-block{border-left:2px solid #9b8fd0;padding:6px 0 6px 14px;margin-bottom:10px;}
 .past-note-src{font-size:10px;color:#9b8fd0;font-weight:500;text-transform:uppercase;letter-spacing:.8px;margin-bottom:3px;}
 .past-note-txt{font-size:14px;font-weight:300;color:#333;line-height:1.7;white-space:pre-wrap;}
-
-/* ── investing notes ── */
-.inv-block{background:white;border-radius:8px;border:1.5px solid transparent;transition:border-color .2s,box-shadow .2s;overflow:hidden;}
-.inv-block:focus-within{border-color:#5a9a6030;box-shadow:0 2px 14px rgba(90,154,96,.08);}
-.inv-db-ts{font-size:10px;color:#5a9a60;font-weight:500;letter-spacing:.3px;}
-.inv-ta{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:14px;font-weight:300;line-height:1.75;}
-
-/* ── investing consolidated view ── */
-.invest-view{padding:28px 52px 80px;max-width:760px;}
-.invest-entry-card{background:white;border-radius:10px;padding:18px;margin-bottom:16px;border:1.5px solid #e8f0e8;}
-.invest-entry-hd{margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #f0f6f0;}
-.invest-entry-date{font-family:'Playfair Display',serif;font-size:15px;font-weight:600;color:#1a1a1a;margin-bottom:2px;}
-.invest-entry-loc{font-size:11px;color:#8ababa;margin-top:2px;}
-.invest-note-card{padding-top:12px;margin-top:12px;border-top:1px solid #f0f6f0;}
-.invest-note-card:first-child{padding-top:0;margin-top:0;border-top:none;}
 
 /* ── reading tracker (multi-book) ── */
 .book-list{display:flex;flex-direction:column;gap:14px;}
@@ -539,7 +521,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .past-ts{font-size:10px;color:#C8A96E;margin-bottom:4px;font-weight:500;}
 .past-inv-ts{font-size:10px;color:#5a9a60;margin-bottom:4px;font-weight:500;}
 .past-diary-txt{font-family:'Playfair Display',serif;font-size:15px;line-height:1.85;color:#333;white-space:pre-wrap;}
-.past-invest-txt{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:14px;font-weight:300;line-height:1.75;color:#333;white-space:pre-wrap;}
 .past-todo{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:300;color:#444;padding:4px 0;}
 .past-dot{width:5px;height:5px;border-radius:50%;background:#C8A96E;flex-shrink:0;}
 .past-todo.di{color:#bbb;text-decoration:line-through;}
@@ -554,7 +535,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .past-my-quote{border-left:2px solid #C8A96E;padding:8px 0 8px 14px;margin-bottom:10px;}
 .pmq-text{font-family:'Playfair Display',serif;font-style:italic;font-size:14px;color:#333;line-height:1.7;margin-bottom:4px;}
 .pmq-src{font-size:11px;color:#aaa;}
-.past-invest-block{border-left:2px solid #5a9a60;padding:6px 0 6px 14px;margin-bottom:10px;}
 .empty{color:#ccc;font-style:italic;font-family:'Playfair Display',serif;font-size:14px;}
 
 /* ── month view ── */
@@ -625,7 +605,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .topbar{display:flex;}
   .desk-nav{display:none;}
   .bot-nav{display:block;}
-  .pg-head,.insp-bar,.loc-bar,.stats-row,.content,.past-wrap,.month-view,.search-view,.export-view,.invest-view{padding-left:18px;padding-right:18px;}
+  .pg-head,.insp-bar,.loc-bar,.stats-row,.content,.past-wrap,.month-view,.search-view,.export-view{padding-left:18px;padding-right:18px;}
   .insp-bar,.loc-bar{margin-left:18px;margin-right:18px;}
   .pg-head{padding-top:18px;}
   .pg-title{font-size:26px;}
@@ -633,7 +613,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .toast{bottom:80px;right:16px;}
   .book-fields{grid-template-columns:1fr;}
   /* Prevent iOS auto-zoom on input focus (triggered when font-size < 16px) */
-  .ti,.loc-inp,.db-ta,.inv-ta,.bf-inp,.mq-ta,.gi{font-size:16px;}
+  .ti,.loc-inp,.db-ta,.bf-inp,.mq-ta,.gi{font-size:16px;}
 }
 `;
 
@@ -876,168 +856,6 @@ const NotesSection = memo(({ notes, onChange }) => {
   );
 });
 
-// ─── InvestingNotes (daily write section) ─────────────────────────────────────
-const InvestingNotes = memo(({ notes, onChange }) => {
-  const add = useCallback(()=>onChange([...notes,{id:uid(),ts:nowTs(),text:""}]),[notes,onChange]);
-  const upd = useCallback((id,text)=>onChange(notes.map(n=>n.id===id?{...n,text}:n)),[notes,onChange]);
-  const del = useCallback(id=>onChange(notes.filter(n=>n.id!==id)),[notes,onChange]);
-  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
-  return (
-    <div className="diary-blocks">
-      {notes.map(n=>(
-        <div key={n.id} className="inv-block">
-          <div className="db-meta">
-            <span className="inv-db-ts">{n.ts?fmtTime(n.ts):"earlier"}</span>
-            <button className="db-del" onClick={()=>del(n.id)}>×</button>
-          </div>
-          <textarea className="db-ta inv-ta" value={n.text} placeholder="Investment thesis, market observations, stock notes…"
-            onChange={e=>{upd(n.id,e.target.value);grow(e.target);}}
-            onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
-        </div>
-      ))}
-      <button className="add-row" onClick={add}>
-        {notes.length===0?"+ Add an investing note…":`+ Add another · ${new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true})}`}
-      </button>
-    </div>
-  );
-});
-
-// ─── InvestNoteCard (editable card in consolidated view) ──────────────────────
-const InvestNoteCard = memo(({ note, date, onSave, onDelete }) => {
-  const [text, setText] = useState(note.text);
-  const timer = useRef(null);
-  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
-
-  const handleChange = val => {
-    setText(val);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(()=>onSave(date,note.id,val),700);
-  };
-
-  return (
-    <div className="invest-note-card">
-      <div className="db-meta" style={{padding:"0 0 6px"}}>
-        <span className="inv-db-ts">{note.ts?fmtTime(note.ts):"earlier"}</span>
-        <button className="db-del" onClick={()=>onDelete(date,note.id)}>×</button>
-      </div>
-      <textarea className="db-ta inv-ta" value={text}
-        onChange={e=>{handleChange(e.target.value);grow(e.target);}}
-        onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}
-        placeholder="Investment thoughts…"/>
-    </div>
-  );
-});
-
-// ─── Investor Profiles (multiple, persistent, stored outside daily entries) ───
-const INVESTOR_KEY    = "myjournal_investor";
-const blankInvestor   = () => ({ id:uid(), name:"", strategy:"", website:"" });
-const loadInvestors   = () => {
-  try {
-    const r=localStorage.getItem(INVESTOR_KEY);
-    if(r){
-      const d=JSON.parse(r);
-      if(Array.isArray(d)) return d.length?d:[blankInvestor()];
-      if(d&&typeof d==="object") return [{id:uid(),...d}]; // migrate single→array
-    }
-  } catch {}
-  return [blankInvestor()];
-};
-const saveInvestors = d => localStorage.setItem(INVESTOR_KEY, JSON.stringify(d));
-
-const InvestorProfile = memo(() => {
-  const [profiles, setProfiles] = useState(()=>loadInvestors());
-  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
-  const upd = useCallback((id,f,v)=>{const u=profiles.map(p=>p.id===id?{...p,[f]:v}:p);setProfiles(u);saveInvestors(u);},[profiles]);
-  const add = useCallback(()=>{const u=[...profiles,blankInvestor()];setProfiles(u);saveInvestors(u);},[profiles]);
-  const del = useCallback(id=>{const u=profiles.filter(p=>p.id!==id);const f=u.length?u:[blankInvestor()];setProfiles(f);saveInvestors(f);},[profiles]);
-  return (
-    <div style={{marginBottom:14}}>
-      {profiles.map((p,i)=>(
-        <div key={p.id} style={{background:"white",borderRadius:10,padding:"16px 18px",border:"1.5px solid #d8eed8",marginBottom:10}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-            <div style={{fontSize:10,color:"#5a9a60",textTransform:"uppercase",letterSpacing:"1.2px",fontWeight:500}}>
-              {profiles.length>1?`Investor ${i+1}`:"Investor Profile"}
-            </div>
-            {profiles.length>1&&<button className="db-del" onClick={()=>del(p.id)}>×</button>}
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:12}}>
-            <div className="bf">
-              <div className="bf-lbl">Name</div>
-              <input className="bf-inp" value={p.name} placeholder="Your name…" onChange={e=>upd(p.id,"name",e.target.value)}/>
-            </div>
-            <div className="bf">
-              <div className="bf-lbl">Website / Reference</div>
-              <input className="bf-inp" value={p.website} placeholder="e.g. https://example.com" onChange={e=>upd(p.id,"website",e.target.value)}/>
-            </div>
-          </div>
-          <div className="bf">
-            <div className="bf-lbl">Investment Strategy</div>
-            <textarea className="bn-ta" value={p.strategy}
-              placeholder="Describe your investment strategy — philosophy, focus areas, time horizon…"
-              onChange={e=>{upd(p.id,"strategy",e.target.value);grow(e.target);}}
-              onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}
-              style={{marginTop:4,minHeight:52}}/>
-          </div>
-        </div>
-      ))}
-      <button className="add-row" onClick={add}>+ Add another investor profile</button>
-    </div>
-  );
-});
-
-// ─── InvestingView (consolidated all-notes view) ──────────────────────────────
-const InvestingView = memo(({ onAddToday }) => {
-  const [tick, setTick] = useState(0);
-  const entriesWithNotes = useMemo(()=>
-    allEntries().filter(e=>(e.investingNotes||[]).some(n=>n.text?.trim()))
-  ,[tick]);
-
-  const saveNote = useCallback((date,noteId,text)=>{
-    const e = load(date);
-    save(date,{...e,investingNotes:(e.investingNotes||[]).map(n=>n.id===noteId?{...n,text}:n)});
-  },[]);
-
-  const deleteNote = useCallback((date,noteId)=>{
-    const e = load(date);
-    save(date,{...e,investingNotes:(e.investingNotes||[]).filter(n=>n.id!==noteId)});
-    setTick(t=>t+1);
-  },[]);
-
-  return (
-    <div className="invest-view">
-      <div className="eyebrow">Investing</div>
-      <h1 className="pg-title">My <em>Investing</em> Notes</h1>
-      <p style={{fontSize:13,color:"#aaa",fontWeight:300,marginTop:6,marginBottom:20}}>
-        All your investing notes in one place — editable here or from any daily entry.
-      </p>
-
-      <InvestorProfile/>
-
-      <button className="add-row" style={{marginBottom:24}} onClick={onAddToday}>
-        📈 Add investing note for today
-      </button>
-
-      {entriesWithNotes.length===0&&(
-        <div className="empty">No investing notes yet. Use the button above to start tracking your investment thoughts.</div>
-      )}
-
-      {entriesWithNotes.map(entry=>(
-        <div key={entry.date} className="invest-entry-card">
-          <div className="invest-entry-hd">
-            <div className="invest-entry-date">
-              {fmtDate(entry.date,{weekday:"short",month:"long",day:"numeric",year:"numeric"})}
-            </div>
-            {entry.location&&<div className="invest-entry-loc">📍 {entry.location}</div>}
-          </div>
-          {(entry.investingNotes||[]).filter(n=>n.text?.trim()).map(note=>(
-            <InvestNoteCard key={note.id} note={note} date={entry.date} onSave={saveNote} onDelete={deleteNote}/>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-});
-
 // ─── DailyHabits (Write tab checklist) ───────────────────────────────────────
 const DailyHabits = memo(({ checks, onChange, refreshKey }) => {
   const [habits, setHabits] = useState(()=>loadHabits());
@@ -1217,7 +1035,6 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
   const setMyQuotes      = useCallback(myQuotes=>setEntry(e=>({...e,myQuotes})),[setEntry]);
   const setNotes         = useCallback(notes=>setEntry(e=>({...e,notes})),[setEntry]);
   const setHabitChecks   = useCallback(habitChecks=>setEntry(e=>({...e,habitChecks})),[setEntry]);
-  const setInvestNotes   = useCallback(investingNotes=>setEntry(e=>({...e,investingNotes})),[setEntry]);
 
   const handleLocChange = useCallback(val=>{
     setLoc(val);
@@ -1267,7 +1084,6 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
     const grat    = entry.gratitude||[];
     const books   = entry.books||[];
     const quotes  = entry.myQuotes||[];
-    const invNotes= entry.investingNotes||[];
     const entNotes= entry.notes||[];
     return (
       <>
@@ -1301,16 +1117,6 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
               <div key={n.id} className="past-note-block">
                 {n.source&&<div className="past-note-src">{n.source}</div>}
                 <div className="past-note-txt">{n.text}</div>
-              </div>
-            ))}
-          </div>}
-
-          {invNotes.filter(n=>n.text?.trim()).length>0&&<div className="past-sec">
-            <div className="past-lbl">Investing Notes</div>
-            {invNotes.filter(n=>n.text?.trim()).map(n=>(
-              <div key={n.id} className="past-invest-block">
-                {n.ts&&<div className="past-inv-ts">{fmtTime(n.ts)}</div>}
-                <div className="past-invest-txt">{n.text}</div>
               </div>
             ))}
           </div>}
@@ -1430,12 +1236,6 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
         </div>
 
         <div className="section">
-          <div className="sec-hd"><div className="sec-ic ic-invest">📈</div><div className="sec-ttl">Investing Notes</div><div className="sec-hint">thesis · ideas · observations</div></div>
-          <InvestorProfile/>
-          <InvestingNotes notes={entry.investingNotes||[]} onChange={setInvestNotes}/>
-        </div>
-
-        <div className="section">
           <div className="sec-hd"><div className="sec-ic ic-quote">"</div><div className="sec-ttl">Quotes</div><div className="sec-hint">capture what resonates</div></div>
           <MyQuotes quotes={entry.myQuotes||[]} onChange={setMyQuotes}/>
         </div>
@@ -1477,8 +1277,8 @@ const MonthView = memo(({ calMonth, setCalMonth, entrySet, selectedDate, today, 
           if(!d) return <div key={`e${i}`} className="cal-day empty"/>;
           const k=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
           const has=entrySet.has(k);
-          let hasDiary=false,hasGrat=false,hasRead=false,hasQuote=false,hasInvest=false;
-          if(has){try{const e=JSON.parse(localStorage.getItem(KEY+k)||"{}");hasDiary=!!(e.diaryBlocks?.some(b=>b.text?.trim())||e.diary?.trim());hasGrat=e.gratitude?.some(g=>g?.trim());hasRead=(e.books||[]).some(b=>b.title);hasQuote=(e.myQuotes||[]).some(q=>q.text?.trim());hasInvest=(e.investingNotes||[]).some(n=>n.text?.trim());}catch{}}
+          let hasDiary=false,hasGrat=false,hasRead=false,hasQuote=false;
+          if(has){try{const e=JSON.parse(localStorage.getItem(KEY+k)||"{}");hasDiary=!!(e.diaryBlocks?.some(b=>b.text?.trim())||e.diary?.trim());hasGrat=e.gratitude?.some(g=>g?.trim());hasRead=(e.books||[]).some(b=>b.title);hasQuote=(e.myQuotes||[]).some(q=>q.text?.trim());}catch{}}
           return (
             <div key={k} className={`cal-day${has?" has":""}${k===today?" today":""}${k===selectedDate?" sel":""}`} onClick={()=>{if(has)onSelect(k);}}>
               {d}
@@ -1487,7 +1287,6 @@ const MonthView = memo(({ calMonth, setCalMonth, entrySet, selectedDate, today, 
                 {hasGrat&&<div className="cal-dot dot-g"/>}
                 {hasRead&&<div className="cal-dot dot-r"/>}
                 {hasQuote&&<div className="cal-dot dot-q"/>}
-                {hasInvest&&<div className="cal-dot dot-i"/>}
               </div>}
             </div>
           );
@@ -1498,7 +1297,6 @@ const MonthView = memo(({ calMonth, setCalMonth, entrySet, selectedDate, today, 
         <span><span style={{color:"#c0b0d0"}}>●</span> gratitude</span>
         <span><span style={{color:"#8ababa"}}>●</span> reading</span>
         <span><span style={{color:"#e8c878"}}>●</span> quotes</span>
-        <span><span style={{color:"#5a9a60"}}>●</span> investing</span>
       </div>
       <div className="streak-note">Current streak: <strong>{streak} {streak===1?"day":"days"}</strong> · Total: <strong>{totalDays} {totalDays===1?"entry":"entries"}</strong></div>
     </div>
@@ -1510,7 +1308,7 @@ const SearchView = memo(({ entries, onSelect }) => {
   const [q,setQ] = useState("");
   const results  = q.trim()
     ? entries.filter(e=>{
-        const blob=[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),e.location||"",...(e.books||[]).map(b=>`${b.title} ${b.author} ${b.notes}`),...(e.myQuotes||[]).map(q=>`${q.text} ${q.source}`),...(e.investingNotes||[]).map(n=>n.text||""),...(e.notes||[]).map(n=>`${n.source||""} ${n.text||""}`)].join(" ").toLowerCase();
+        const blob=[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),e.location||"",...(e.books||[]).map(b=>`${b.title} ${b.author} ${b.notes}`),...(e.myQuotes||[]).map(q=>`${q.text} ${q.source}`),...(e.notes||[]).map(n=>`${n.source||""} ${n.text||""}`)].join(" ").toLowerCase();
         return blob.includes(q.toLowerCase());
       }).slice(0,20)
     : [];
@@ -1522,7 +1320,7 @@ const SearchView = memo(({ entries, onSelect }) => {
     const snip=(start>0?"…":"")+text.slice(start,idx+q.length+60)+(text.length>idx+q.length+60?"…":"");
     return snip.split(new RegExp(`(${q})`,"gi")).map((p,i)=>p.toLowerCase()===q.toLowerCase()?<mark key={i}>{p}</mark>:p);
   };
-  const blob=(e)=>[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),...(e.myQuotes||[]).map(q=>q.text||""),...(e.investingNotes||[]).map(n=>n.text||""),...(e.notes||[]).map(n=>n.text||"")].join(" ");
+  const blob=(e)=>[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),...(e.myQuotes||[]).map(q=>q.text||""),...(e.notes||[]).map(n=>n.text||"")].join(" ");
   return (
     <div className="search-view">
       <div className="eyebrow">Search</div>
@@ -1561,12 +1359,11 @@ const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, driveCo
       const todos  =(e.todos||[]).filter(t=>getTxt(t)).map(t=>`- [${getDone(t)?"x":" "}] ${getTxt(t)}`).join("\n");
       const story  =(e.diaryBlocks||[]).filter(b=>b.text?.trim()).map(b=>`${b.ts?`*${fmtTime(b.ts)}*\n\n`:""}${b.text}`).join("\n\n---\n\n");
       const entNotes=(e.notes||[]).filter(n=>n.text?.trim()).map(n=>`${n.source?`**${n.source}**\n\n`:""}${n.text}`).join("\n\n---\n\n");
-      const invest =(e.investingNotes||[]).filter(n=>n.text?.trim()).map(n=>`${n.ts?`*${fmtTime(n.ts)}*\n\n`:""}${n.text}`).join("\n\n---\n\n");
       const books  =(e.books||[]).filter(b=>b.title).map(b=>{const m=bookMins(b);const sess=(b.sessions||[]).filter(s=>s.startTime).map(s=>`${s.startTime}${s.endTime?`→${s.endTime}`:" (in progress)"}`).join(", ");return `📖 **${b.title}**${b.author?` — ${b.author}`:""}${sess?` · ${sess}`:""}${m>0?` (${fmtMins(m)})`:""}${b.notes?`\n\n> ${b.notes}`:""}`}).join("\n\n");
       const quotes =(e.myQuotes||[]).filter(q=>q.text?.trim()).map(q=>`> "${q.text}"${q.source?`\n> — ${q.source}`:""}`).join("\n\n");
       const grat   =(e.gratitude||[]).filter(g=>g?.trim()).map((g,i)=>`${i+1}. ${g}`).join("\n");
       const loc    = e.location?`📍 ${e.location}\n\n`:"";
-      return `# ${fmtDate(e.date)}\n\n${loc}## Focus\n${todos||"—"}\n\n## Journal\n${story||"—"}\n\n## Notes\n${entNotes||"—"}\n\n## Investing Notes\n${invest||"—"}\n\n## Reading\n${books||"—"}\n\n## Quotes\n${quotes||"—"}\n\n## Grateful For\n${grat||"—"}\n\n---`;
+      return `# ${fmtDate(e.date)}\n\n${loc}## Focus\n${todos||"—"}\n\n## Journal\n${story||"—"}\n\n## Notes\n${entNotes||"—"}\n\n## Reading\n${books||"—"}\n\n## Quotes\n${quotes||"—"}\n\n## Grateful For\n${grat||"—"}\n\n---`;
     }).join("\n\n");
     dl(lines,"my-journal.md","text/markdown");
   };
@@ -1657,7 +1454,7 @@ const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, driveCo
         <p>Download your full journal as a file you can load on another device.</p>
         <button className="ex-btn pri" onClick={dlJson}>Download .json</button>
       </div>
-      <div className="ex-card"><h3>Markdown</h3><p>All entries — journal, investing notes, books, quotes, gratitude — as a .md file. Great for Obsidian or Notion.</p><button className="ex-btn sec" onClick={dlMd}>Download .md</button></div>
+      <div className="ex-card"><h3>Markdown</h3><p>All entries — journal, books, quotes, gratitude — as a .md file. Great for Obsidian or Notion.</p><button className="ex-btn sec" onClick={dlMd}>Download .md</button></div>
       <div className="ex-card"><h3>Substack / Blog</h3><p>Journal entries + quotes, formatted for Substack.</p><button className="ex-btn sec" onClick={dlSub}>Download for Substack</button></div>
     </div>
   );
@@ -1669,7 +1466,6 @@ const NAVS = [
   {key:"focus",  icon:"◎",  label:"Focus"},
   {key:"month",  icon:"◫",  label:"Month"},
   {key:"search", icon:"⌕",  label:"Search"},
-  {key:"invest", icon:"◈",  label:"Invest"},
   {key:"habits", icon:"◐",  label:"Habits"},
   {key:"export", icon:"↗",  label:"Export"},
 ];
@@ -1865,8 +1661,6 @@ export default function App() {
     _tok=null; _tokExp=0;
   },[]);
 
-  const onAddInvestingToday = useCallback(()=>selectDay(today),[selectDay,today]);
-
   const totalDays      = entries.length;
   const diaryDays      = entries.filter(e=>(e.diaryBlocks||[]).some(b=>b.text?.trim())||e.diary?.trim()).length;
   const todayL         = load(today);
@@ -1947,9 +1741,6 @@ export default function App() {
           </div>
           <div style={{display:tab==="search"?"block":"none"}}>
             <SearchView entries={entries} onSelect={selectDay}/>
-          </div>
-          <div style={{display:tab==="invest"?"block":"none"}}>
-            <InvestingView onAddToday={onAddInvestingToday}/>
           </div>
           <div style={{display:tab==="habits"?"block":"none"}}>
             <HabitsView today={today} refreshKey={habitsTick}/>
