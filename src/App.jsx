@@ -103,6 +103,12 @@ const HABITS_KEY  = "myjournal_habits";
 const blankHabit  = () => ({ id:uid(), name:"" });
 const loadHabits  = () => { try{const r=localStorage.getItem(HABITS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
 const saveHabits  = h => localStorage.setItem(HABITS_KEY, JSON.stringify(h));
+
+// ─── Ideas helpers ────────────────────────────────────────────────────────────
+const IDEAS_KEY  = "myjournal_ideas";
+const blankIdea  = () => ({ id:uid(), title:"", description:"", createdAt:nowTs(), rank:0 });
+const loadIdeas  = () => { try{const r=localStorage.getItem(IDEAS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
+const saveIdeas  = ideas => localStorage.setItem(IDEAS_KEY, JSON.stringify(ideas));
 const dateKey     = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const calcHabitStreak = (habitId) => {
   let s=0; const d=new Date();
@@ -226,7 +232,7 @@ const getDriveFileId = async token => {
 };
 const saveToDrive = async (entries, token) => {
   if(!token) token=await getToken();
-  const content=JSON.stringify({v:2,entries,habits:loadHabits()},null,2);
+  const content=JSON.stringify({v:2,entries,habits:loadHabits(),ideas:loadIdeas()},null,2);
   const fileId=await getDriveFileId(token);
   let url;
   if(!fileId){
@@ -266,6 +272,13 @@ const mergeAndSaveToDrive = async (localEntries, token) => {
         const localIds=new Set(local.map(h=>h.id));
         const extraH=driveHabits.filter(h=>h.id&&!localIds.has(h.id));
         if(extraH.length) saveHabits([...local,...extraH]);
+      }
+      const driveIdeas = Array.isArray(driveData.ideas)?driveData.ideas:[];
+      if(driveIdeas.length){
+        const local=loadIdeas();
+        const localIds=new Set(local.map(i=>i.id));
+        const extraI=driveIdeas.filter(i=>i.id&&!localIds.has(i.id));
+        if(extraI.length) saveIdeas([...local,...extraI]);
       }
     }
   } catch {}
@@ -422,6 +435,26 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .hwdot.off{background:#f5ede0;color:#ccc;}
 .hwdot.today-dot{box-shadow:0 0 0 2px #e8900a;}
 .hwdot-day{font-size:8px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;opacity:.7;}
+
+/* ── ideas view ── */
+.ideas-view{padding:28px 52px 80px;max-width:760px;}
+.ideas-sort-bar{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;}
+.ideas-sort-btn{padding:5px 14px;border:1.5px solid #e0d8cc;border-radius:20px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#888;cursor:pointer;background:none;transition:all .2s;}
+.ideas-sort-btn.active{background:#1a1a1a;color:#F5F0E8;border-color:#1a1a1a;}
+.idea-card{background:white;border-radius:10px;padding:16px 18px;margin-bottom:14px;border:1.5px solid transparent;transition:border-color .2s,box-shadow .2s;}
+.idea-card:focus-within{border-color:#C8A96E30;box-shadow:0 2px 12px rgba(200,169,110,.1);}
+.idea-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.idea-ts{font-size:10px;color:#C8A96E;font-weight:500;letter-spacing:.3px;}
+.idea-del{background:none;border:none;color:#ddd;cursor:pointer;font-size:15px;padding:0 2px;transition:color .15s;line-height:1;}
+.idea-del:hover{color:#e07070;}
+.idea-title-inp{width:100%;border:none;outline:none;font-family:'Playfair Display',serif;font-size:17px;font-weight:600;color:#1a1a1a;background:transparent;margin-bottom:10px;}
+.idea-title-inp::placeholder{color:#ccc;font-weight:400;}
+.idea-desc-ta{width:100%;border:none;outline:none;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:14px;font-weight:300;line-height:1.75;color:#444;background:transparent;resize:none;min-height:56px;margin-bottom:12px;}
+.idea-desc-ta::placeholder{color:#ccc;}
+.idea-rank-row{display:flex;align-items:center;gap:6px;}
+.idea-rank-lbl{font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:1px;margin-right:4px;}
+.idea-star{font-size:20px;cursor:pointer;line-height:1;transition:transform .1s;user-select:none;}
+.idea-star:hover{transform:scale(1.2);}
 
 /* ── notes (takeaways) ── */
 .note-block{background:white;border-radius:8px;border:1.5px solid transparent;transition:border-color .2s,box-shadow .2s;overflow:hidden;}
@@ -605,7 +638,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .topbar{display:flex;}
   .desk-nav{display:none;}
   .bot-nav{display:block;}
-  .pg-head,.insp-bar,.loc-bar,.stats-row,.content,.past-wrap,.month-view,.search-view,.export-view{padding-left:18px;padding-right:18px;}
+  .pg-head,.insp-bar,.loc-bar,.stats-row,.content,.past-wrap,.month-view,.search-view,.export-view,.ideas-view,.habits-view{padding-left:18px;padding-right:18px;}
   .insp-bar,.loc-bar{margin-left:18px;margin-right:18px;}
   .pg-head{padding-top:18px;}
   .pg-title{font-size:26px;}
@@ -613,7 +646,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .toast{bottom:80px;right:16px;}
   .book-fields{grid-template-columns:1fr;}
   /* Prevent iOS auto-zoom on input focus (triggered when font-size < 16px) */
-  .ti,.loc-inp,.db-ta,.bf-inp,.mq-ta,.gi{font-size:16px;}
+  .ti,.loc-inp,.db-ta,.bf-inp,.mq-ta,.gi,.idea-title-inp,.idea-desc-ta{font-size:16px;}
 }
 `;
 
@@ -957,6 +990,95 @@ const HabitsView = memo(({ today, refreshKey }) => {
           })}
         </>
       )}
+    </div>
+  );
+});
+
+// ─── IdeasView ────────────────────────────────────────────────────────────────
+const STAR_LABELS = ["","Weak","Maybe","Good","Strong","Must-do"];
+
+const IdeaCard = memo(({ idea, onChange, onDelete }) => {
+  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
+  const set  = (f,v) => onChange({...idea,[f]:v});
+  return (
+    <div className="idea-card">
+      <div className="idea-card-head">
+        <span className="idea-ts">{fmtTime(idea.createdAt)}{idea.createdAt ? " · " + new Date(idea.createdAt).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : ""}</span>
+        <button className="idea-del" onClick={onDelete}>×</button>
+      </div>
+      <input className="idea-title-inp" value={idea.title} placeholder="Idea title…"
+        onChange={e=>set("title",e.target.value)}/>
+      <textarea className="idea-desc-ta" value={idea.description} placeholder="What's the opportunity? Who does it help? Why now?"
+        onChange={e=>{set("description",e.target.value);grow(e.target);}}
+        onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+      <div className="idea-rank-row">
+        <span className="idea-rank-lbl">Conviction</span>
+        {[1,2,3,4,5].map(s=>(
+          <span key={s} className="idea-star" title={STAR_LABELS[s]}
+            onClick={()=>set("rank",idea.rank===s?0:s)}>
+            {s<=idea.rank?"★":"☆"}
+          </span>
+        ))}
+        {idea.rank>0&&<span style={{fontSize:10,color:"#C8A96E",marginLeft:4}}>{STAR_LABELS[idea.rank]}</span>}
+      </div>
+    </div>
+  );
+});
+
+const IdeasView = memo(({ refreshKey }) => {
+  const [ideas, setIdeas]   = useState(()=>loadIdeas());
+  const [sort, setSort]     = useState("date");
+
+  useEffect(()=>setIdeas(loadIdeas()),[refreshKey]);
+
+  const persist = useCallback(updated=>{
+    setIdeas(updated);
+    saveIdeas(updated);
+  },[]);
+
+  const addIdea  = useCallback(()=>{
+    const idea=blankIdea();
+    const updated=[idea,...loadIdeas()];
+    persist(updated);
+  },[persist]);
+
+  const updIdea  = useCallback((id,updated)=>{
+    persist(loadIdeas().map(i=>i.id===id?updated:i));
+  },[persist]);
+
+  const delIdea  = useCallback(id=>{
+    persist(loadIdeas().filter(i=>i.id!==id));
+  },[persist]);
+
+  const sorted = useMemo(()=>{
+    const copy=[...ideas];
+    if(sort==="rank") return copy.sort((a,b)=>b.rank-a.rank||(b.createdAt-a.createdAt));
+    return copy.sort((a,b)=>b.createdAt-a.createdAt);
+  },[ideas,sort]);
+
+  return (
+    <div className="ideas-view">
+      <div className="eyebrow">Entrepreneurship</div>
+      <h1 className="pg-title">My <em>Ideas</em></h1>
+      <p style={{fontSize:13,color:"#aaa",fontWeight:300,marginTop:6,marginBottom:20}}>
+        Log ideas as they strike. Timestamp them, rank your conviction, and revisit over time.
+      </p>
+
+      <button className="add-row" style={{marginBottom:18}} onClick={addIdea}>+ Log a new idea</button>
+
+      <div className="ideas-sort-bar">
+        <button className={`ideas-sort-btn${sort==="date"?" active":""}`} onClick={()=>setSort("date")}>Newest first</button>
+        <button className={`ideas-sort-btn${sort==="rank"?" active":""}`} onClick={()=>setSort("rank")}>Highest conviction</button>
+        {ideas.length>0&&<span style={{fontSize:11,color:"#bbb",alignSelf:"center",marginLeft:"auto"}}>{ideas.length} idea{ideas.length!==1?"s":""}</span>}
+      </div>
+
+      {sorted.length===0&&<div className="empty" style={{marginTop:16}}>No ideas yet. Hit the button above to capture your first one.</div>}
+
+      {sorted.map(idea=>(
+        <IdeaCard key={idea.id} idea={idea}
+          onChange={updated=>updIdea(idea.id,updated)}
+          onDelete={()=>delIdea(idea.id)}/>
+      ))}
     </div>
   );
 });
@@ -1464,6 +1586,7 @@ const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, driveCo
 const NAVS = [
   {key:"write",  icon:"✦",  label:"Write"},
   {key:"focus",  icon:"◎",  label:"Focus"},
+  {key:"ideas",  icon:"✧",  label:"Ideas"},
   {key:"month",  icon:"◫",  label:"Month"},
   {key:"search", icon:"⌕",  label:"Search"},
   {key:"habits", icon:"◐",  label:"Habits"},
@@ -1482,6 +1605,7 @@ export default function App() {
   const [calMonth,      setCalMonth]    = useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
   const [focusTick,     setFocusTick]   = useState(0);
   const [habitsTick,    setHabitsTick]  = useState(0);
+  const [ideasTick,     setIdeasTick]   = useState(0);
   const [driveStatus,   setDS]          = useState("");
   const [driveLoading,  setDL]          = useState(false);
   const [lastSync,      setLastSync]    = useState("");
@@ -1511,6 +1635,13 @@ export default function App() {
           const localIds=new Set(local.map(h=>h.id));
           const extraH=driveHabits.filter(h=>h.id&&!localIds.has(h.id));
           if(extraH.length){saveHabits([...local,...extraH]);setHabitsTick(t=>t+1);}
+        }
+        const driveIdeas=Array.isArray(driveData.ideas)?driveData.ideas:[];
+        if(driveIdeas.length){
+          const local=loadIdeas();
+          const localIds=new Set(local.map(i=>i.id));
+          const extraI=driveIdeas.filter(i=>i.id&&!localIds.has(i.id));
+          if(extraI.length){saveIdeas([...local,...extraI]);setIdeasTick(t=>t+1);}
         }
         if(count>0){
           setEntries(allEntries());
@@ -1588,6 +1719,13 @@ export default function App() {
         const extraH=driveHabits.filter(h=>h.id&&!localIds.has(h.id));
         if(extraH.length){saveHabits([...local,...extraH]);setHabitsTick(t=>t+1);}
       }
+      const driveIdeas=Array.isArray(driveData.ideas)?driveData.ideas:[];
+      if(driveIdeas.length){
+        const local=loadIdeas();
+        const localIds=new Set(local.map(i=>i.id));
+        const extraI=driveIdeas.filter(i=>i.id&&!localIds.has(i.id));
+        if(extraI.length){saveIdeas([...local,...extraI]);setIdeasTick(t=>t+1);}
+      }
       lastPullRef.current=Date.now();
       setEntries(allEntries());
       setEntry(load(selDate));
@@ -1604,6 +1742,7 @@ export default function App() {
     if(newTab==="write"&&tab!=="write"){ setEntry(load(selDate)); doPullFromDrive(true); }
     if(newTab==="focus") setFocusTick(t=>t+1);
     if(newTab==="habits") setHabitsTick(t=>t+1);
+    if(newTab==="ideas") setIdeasTick(t=>t+1);
     setTab(newTab);
   },[tab,selDate,doPullFromDrive]);
 
@@ -1641,6 +1780,13 @@ export default function App() {
         const localIds=new Set(local.map(h=>h.id));
         const extraH=driveHabits.filter(h=>h.id&&!localIds.has(h.id));
         if(extraH.length){saveHabits([...local,...extraH]);setHabitsTick(t=>t+1);}
+      }
+      const driveIdeas=Array.isArray(driveData.ideas)?driveData.ideas:[];
+      if(driveIdeas.length){
+        const local=loadIdeas();
+        const localIds=new Set(local.map(i=>i.id));
+        const extraI=driveIdeas.filter(i=>i.id&&!localIds.has(i.id));
+        if(extraI.length){saveIdeas([...local,...extraI]);setIdeasTick(t=>t+1);}
       }
       setEntries(allEntries());
       setEntry(load(selDate));
@@ -1735,6 +1881,9 @@ export default function App() {
           </div>
           <div style={{display:tab==="focus"?"block":"none"}}>
             <FocusView today={today} refreshKey={focusTick} onSelectDay={date=>{selectDay(date);switchTab("write");}}/>
+          </div>
+          <div style={{display:tab==="ideas"?"block":"none"}}>
+            <IdeasView refreshKey={ideasTick}/>
           </div>
           <div style={{display:tab==="month"?"block":"none"}}>
             <MonthView calMonth={calMonth} setCalMonth={setCalMonth} entrySet={entrySet} selectedDate={selDate} today={today} streak={streak} totalDays={totalDays} onSelect={selectDay}/>
