@@ -91,8 +91,18 @@ const calcMins = (start, end) => {
 };
 const fmtMins  = m => m >= 60 ? `${Math.floor(m/60)}h ${m%60}m` : `${m}m`;
 const blankSession = () => ({ id:uid(), startTime:nowHHMM(), endTime:"" });
-const blankBook    = () => ({ id:uid(), title:"", author:"", sessions:[blankSession()], notes:"" });
+const blankBook    = () => ({ id:uid(), title:"", author:"", sessions:[blankSession()], notes:[] });
 const bookMins     = b => (b.sessions||[]).reduce((acc,s)=>acc+calcMins(s.startTime,s.endTime),0);
+
+// Book notes are timestamped entries. Old data stored a single string — normalise
+// it to a one-note array (ts null → rendered as "earlier").
+const blankBookNote = () => ({ id:uid(), ts:nowTs(), text:"" });
+const bookNotes = b => {
+  if (Array.isArray(b?.notes)) return b.notes;
+  if (typeof b?.notes === "string" && b.notes.trim()) return [{ id:`${b.id||uid()}-legacy`, ts:null, text:b.notes }];
+  return [];
+};
+const normTitle = t => (t||"").trim().toLowerCase();
 
 // blank personal quote
 const blankMyQuote = () => ({ id:uid(), text:"", source:"", ts:nowTs() });
@@ -157,14 +167,15 @@ const migrate = p => {
     delete p.reading;
   }
   if (!Array.isArray(p.books)) p.books = [];
-  // migrate old books to sessions array format
+  // migrate old books to sessions array format, and old string notes to timestamped array
   p.books = p.books.map(b => {
     if (!b || typeof b !== "object") return null;
+    const notes = bookNotes(b);
     if (!b.sessions) {
       const session = { id:uid(), startTime:b.startTime||"", endTime:b.endTime||"" };
-      return { id:b.id||uid(), title:b.title||"", author:b.author||"", sessions:[session], notes:b.notes||"" };
+      return { id:b.id||uid(), title:b.title||"", author:b.author||"", sessions:[session], notes };
     }
-    return b;
+    return { ...b, notes };
   }).filter(Boolean);
   return p;
 };
@@ -456,6 +467,32 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .idea-star{font-size:20px;cursor:pointer;line-height:1;transition:transform .1s;user-select:none;}
 .idea-star:hover{transform:scale(1.2);}
 
+/* ── book notes (timestamped, inside a book card) ── */
+.bnote-list{display:flex;flex-direction:column;gap:7px;}
+.bnote{background:#f4fafa;border-radius:8px;border:1.5px solid transparent;padding:7px 12px 9px;transition:border-color .2s;}
+.bnote:focus-within{border-color:#8ababa50;}
+.bnote-head{display:flex;align-items:center;justify-content:space-between;}
+.bnote-ts{font-size:10px;color:#4a9a9a;font-weight:500;letter-spacing:.3px;}
+.bnote-ta{width:100%;border:none;outline:none;background:transparent;resize:none;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:14px;font-weight:300;line-height:1.7;color:#1a1a1a;min-height:40px;}
+.bnote-ta::placeholder{color:#c8d4d4;}
+.bnote-add{margin-top:7px;background:none;border:1.5px dashed #cfe2e2;border-radius:8px;padding:8px 12px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:12px;color:#9dbaba;cursor:pointer;width:100%;text-align:left;transition:all .2s;}
+.bnote-add:hover{border-color:#8ababa;color:#4a9a9a;background:#8ababa08;}
+
+/* ── reading view (all notes grouped by book) ── */
+.reading-view{padding:28px 52px 80px;max-width:760px;}
+.rv-book{background:white;border-radius:10px;padding:18px;margin-bottom:16px;border:1.5px solid #dfeded;}
+.rv-book-hd{margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #eef5f5;}
+.rv-book-title{font-family:'Playfair Display',serif;font-size:17px;font-weight:600;color:#1a1a1a;line-height:1.3;}
+.rv-book-author{font-size:12px;color:#8ababa;margin-top:2px;}
+.rv-book-stats{display:flex;gap:14px;flex-wrap:wrap;margin-top:9px;font-size:11px;color:#a8c0c0;}
+.rv-book-stats strong{color:#4a9a9a;font-weight:600;}
+.rv-note{padding-top:13px;margin-top:13px;border-top:1px solid #f2f8f8;}
+.rv-note.first{padding-top:0;margin-top:0;border-top:none;}
+.rv-note-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;}
+.rv-note-date{font-size:10px;color:#4a9a9a;font-weight:500;letter-spacing:.3px;cursor:pointer;}
+.rv-note-date:hover{text-decoration:underline;}
+.rv-no-notes{font-size:12px;color:#ccc;font-style:italic;}
+
 /* ── notes (takeaways) ── */
 .note-block{background:white;border-radius:8px;border:1.5px solid transparent;transition:border-color .2s,box-shadow .2s;overflow:hidden;}
 .note-block:focus-within{border-color:#8a7acc30;box-shadow:0 2px 14px rgba(138,122,204,.08);}
@@ -490,9 +527,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .mu{font-size:11px;color:#aaa;margin-right:8px;}
 .preset{padding:3px 9px;border:1.5px solid #e8e2d8;border-radius:20px;font-size:11px;color:#888;cursor:pointer;background:none;transition:all .2s;}
 .preset:hover,.preset.on{border-color:#8ababa;color:#8ababa;background:#8ababa10;}
-.bn-ta{width:100%;border:none;outline:none;border-bottom:1.5px solid #e8e2d8;padding:4px 0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-style:italic;font-size:13px;color:#555;background:transparent;resize:none;min-height:38px;transition:border-color .2s;}
-.bn-ta:focus{border-color:#8ababa;}
-.bn-ta::placeholder{color:#ddd;}
 .book-time-row{display:flex;align-items:flex-end;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
 .bf-time{font-size:15px;font-weight:400;color:#1a1a1a;cursor:pointer;letter-spacing:.3px;}
 .bf-time::-webkit-calendar-picker-indicator{opacity:.4;cursor:pointer;}
@@ -564,7 +598,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .past-book{background:#F0F7F7;border-radius:8px;padding:12px 14px;margin-bottom:8px;}
 .past-book-title{font-weight:500;color:#1a1a1a;font-size:14px;}
 .past-book-meta{font-size:11px;color:#8ababa;margin-top:2px;}
-.past-book-notes{font-size:13px;color:#666;font-style:italic;margin-top:6px;}
+.past-book-note{margin-top:8px;padding-left:10px;border-left:2px solid #a8d0d0;}
+.past-book-note-ts{font-size:10px;color:#4a9a9a;font-weight:500;margin-bottom:2px;}
+.past-book-note-txt{font-size:13px;color:#555;line-height:1.7;white-space:pre-wrap;}
 .past-my-quote{border-left:2px solid #C8A96E;padding:8px 0 8px 14px;margin-bottom:10px;}
 .pmq-text{font-family:'Playfair Display',serif;font-style:italic;font-size:14px;color:#333;line-height:1.7;margin-bottom:4px;}
 .pmq-src{font-size:11px;color:#aaa;}
@@ -638,7 +674,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .topbar{display:flex;}
   .desk-nav{display:none;}
   .bot-nav{display:block;}
-  .pg-head,.insp-bar,.loc-bar,.stats-row,.content,.past-wrap,.month-view,.search-view,.export-view,.ideas-view,.habits-view{padding-left:18px;padding-right:18px;}
+  .pg-head,.insp-bar,.loc-bar,.stats-row,.content,.past-wrap,.month-view,.search-view,.export-view,.ideas-view,.habits-view,.reading-view{padding-left:18px;padding-right:18px;}
   .insp-bar,.loc-bar{margin-left:18px;margin-right:18px;}
   .pg-head{padding-top:18px;}
   .pg-title{font-size:26px;}
@@ -646,7 +682,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .toast{bottom:80px;right:16px;}
   .book-fields{grid-template-columns:1fr;}
   /* Prevent iOS auto-zoom on input focus (triggered when font-size < 16px) */
-  .ti,.loc-inp,.db-ta,.bf-inp,.mq-ta,.gi,.idea-title-inp,.idea-desc-ta{font-size:16px;}
+  .ti,.loc-inp,.db-ta,.bf-inp,.mq-ta,.gi,.idea-title-inp,.idea-desc-ta,.bnote-ta{font-size:16px;}
+}
+/* keep the 8-item bottom nav from overflowing on narrow phones */
+@media(max-width:420px){
+  .bn-item{padding:4px 2px;font-size:8px;letter-spacing:.2px;}
+  .bn-ico{font-size:15px;}
 }
 `;
 
@@ -743,7 +784,11 @@ const BookCard = memo(({ book, num, onChange, onDelete }) => {
   const addSession = useCallback(()=>onChange({...book,sessions:[...(book.sessions||[]),blankSession()]}),[book,onChange]);
   const updSession = useCallback((id,f,v)=>onChange({...book,sessions:(book.sessions||[]).map(s=>s.id===id?{...s,[f]:v}:s)}),[book,onChange]);
   const delSession = useCallback(id=>onChange({...book,sessions:(book.sessions||[]).filter(s=>s.id!==id)}),[book,onChange]);
+  const addNote    = useCallback(()=>onChange({...book,notes:[...bookNotes(book),blankBookNote()]}),[book,onChange]);
+  const updNote    = useCallback((id,text)=>onChange({...book,notes:bookNotes(book).map(n=>n.id===id?{...n,text}:n)}),[book,onChange]);
+  const delNote    = useCallback(id=>onChange({...book,notes:bookNotes(book).filter(n=>n.id!==id)}),[book,onChange]);
   const sessions   = book.sessions||[];
+  const notes      = bookNotes(book);
   const total      = bookMins(book);
   return (
     <div className="book-card">
@@ -786,9 +831,22 @@ const BookCard = memo(({ book, num, onChange, onDelete }) => {
         {total>0&&sessions.length>1&&<div style={{textAlign:"right",fontSize:12,color:"#4a9a9a",fontWeight:600,marginTop:2}}>Total: {fmtMins(total)}</div>}
       </div>
       <div className="bf-lbl" style={{marginBottom:5}}>Notes / highlights</div>
-      <textarea className="bn-ta" value={book.notes} placeholder="Any highlights, quotes, or thoughts from this book…"
-        onChange={e=>{set("notes",e.target.value);grow(e.target);}}
-        onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+      <div className="bnote-list">
+        {notes.map(n=>(
+          <div key={n.id} className="bnote">
+            <div className="bnote-head">
+              <span className="bnote-ts">{n.ts?fmtTime(n.ts):"earlier"}</span>
+              <button className="book-del" onClick={()=>delNote(n.id)}>×</button>
+            </div>
+            <textarea className="bnote-ta" value={n.text} placeholder="Highlight, quote, or thought from this session…"
+              onChange={e=>{updNote(n.id,e.target.value);grow(e.target);}}
+              onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+          </div>
+        ))}
+      </div>
+      <button className="bnote-add" onClick={addNote}>
+        {notes.length===0?"+ Add a reading note…":`+ Add another note · ${fmtTime(nowTs())}`}
+      </button>
     </div>
   );
 });
@@ -1083,6 +1141,124 @@ const IdeasView = memo(({ refreshKey }) => {
   );
 });
 
+// ─── ReadingView (all book notes across all days, grouped by book) ────────────
+const BookNoteCard = memo(({ note, first, onSave, onDelete, onOpenDay }) => {
+  const [text, setText] = useState(note.text);
+  const timer = useRef(null);
+  const grow  = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
+
+  // keep in sync if the underlying note changes (e.g. after a Drive pull)
+  useEffect(()=>setText(note.text),[note.id,note.text]);
+  useEffect(()=>()=>clearTimeout(timer.current),[]);
+
+  const handleChange = val => {
+    setText(val);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(()=>onSave(val),700);
+  };
+
+  return (
+    <div className={`rv-note${first?" first":""}`}>
+      <div className="rv-note-hd">
+        <span className="rv-note-date" onClick={onOpenDay} title="Open this day">
+          {fmtDate(note.date,{month:"short",day:"numeric",year:"numeric"})}{note.ts?` · ${fmtTime(note.ts)}`:""}
+        </span>
+        <button className="book-del" onClick={onDelete}>×</button>
+      </div>
+      <textarea className="bnote-ta" value={text} placeholder="Reading note…"
+        onChange={e=>{handleChange(e.target.value);grow(e.target);}}
+        onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+    </div>
+  );
+});
+
+const ReadingView = memo(({ refreshKey, onSelectDay }) => {
+  const [tick, setTick] = useState(0);
+
+  const books = useMemo(()=>{
+    const map = new Map();
+    allEntries().forEach(e=>{
+      (e.books||[]).forEach(b=>{
+        const key = normTitle(b.title);
+        if(!key) return;
+        if(!map.has(key)) map.set(key,{key,title:b.title.trim(),author:"",mins:0,sessions:0,days:new Set(),notes:[],lastDate:e.date});
+        const rec = map.get(key);
+        if(!rec.author && b.author?.trim()) rec.author = b.author.trim();
+        rec.mins     += bookMins(b);
+        rec.sessions += (b.sessions||[]).filter(s=>s.startTime).length;
+        rec.days.add(e.date);
+        if(e.date > rec.lastDate) rec.lastDate = e.date;
+        bookNotes(b).filter(n=>n.text?.trim())
+          .forEach(n=>rec.notes.push({...n, date:e.date, bookId:b.id}));
+      });
+    });
+    return [...map.values()]
+      .map(r=>({...r, days:r.days.size,
+        notes:r.notes.sort((a,b)=>b.date.localeCompare(a.date)||(b.ts||0)-(a.ts||0))}))
+      .sort((a,b)=>b.lastDate.localeCompare(a.lastDate));
+  },[refreshKey, tick]);
+
+  // Notes live inside the daily entries — edit them in place there.
+  const saveNote = useCallback((date,bookId,noteId,text)=>{
+    const e = load(date);
+    save(date,{...e, books:(e.books||[]).map(b=>b.id!==bookId?b:{...b,notes:bookNotes(b).map(n=>n.id===noteId?{...n,text}:n)})});
+  },[]);
+
+  const deleteNote = useCallback((date,bookId,noteId)=>{
+    const e = load(date);
+    save(date,{...e, books:(e.books||[]).map(b=>b.id!==bookId?b:{...b,notes:bookNotes(b).filter(n=>n.id!==noteId)})});
+    setTick(t=>t+1);
+  },[]);
+
+  const totalMins  = books.reduce((a,b)=>a+b.mins,0);
+  const totalNotes = books.reduce((a,b)=>a+b.notes.length,0);
+
+  return (
+    <div className="reading-view">
+      <div className="eyebrow">All Entries</div>
+      <h1 className="pg-title">Reading <em>Notes</em></h1>
+      <p style={{fontSize:13,color:"#aaa",fontWeight:300,marginTop:6,marginBottom:6}}>
+        Every note you've taken, grouped by book — editable here or in the daily entry.
+      </p>
+      {books.length>0&&(
+        <p style={{fontSize:12,color:"#4a9a9a",marginBottom:20}}>
+          {books.length} book{books.length!==1?"s":""} · {totalNotes} note{totalNotes!==1?"s":""}
+          {totalMins>0?` · ${fmtMins(totalMins)} read`:""}
+        </p>
+      )}
+
+      {books.length===0&&(
+        <div className="empty" style={{marginTop:24}}>
+          No books yet. Add one in the Reading section of today's entry.
+        </div>
+      )}
+
+      {books.map(b=>(
+        <div key={b.key} className="rv-book">
+          <div className="rv-book-hd">
+            <div className="rv-book-title">📖 {b.title}</div>
+            {b.author&&<div className="rv-book-author">{b.author}</div>}
+            <div className="rv-book-stats">
+              {b.mins>0&&<span><strong>{fmtMins(b.mins)}</strong> read</span>}
+              {b.sessions>0&&<span><strong>{b.sessions}</strong> session{b.sessions!==1?"s":""}</span>}
+              <span><strong>{b.days}</strong> day{b.days!==1?"s":""}</span>
+              <span><strong>{b.notes.length}</strong> note{b.notes.length!==1?"s":""}</span>
+            </div>
+          </div>
+          {b.notes.length===0
+            ?<div className="rv-no-notes">No notes for this book yet.</div>
+            :b.notes.map((n,i)=>(
+              <BookNoteCard key={`${n.date}-${n.id}`} note={n} first={i===0}
+                onSave={text=>saveNote(n.date,n.bookId,n.id,text)}
+                onDelete={()=>deleteNote(n.date,n.bookId,n.id)}
+                onOpenDay={()=>onSelectDay(n.date)}/>
+            ))}
+        </div>
+      ))}
+    </div>
+  );
+});
+
 // ─── FocusView (all todos across all days) ────────────────────────────────────
 const FocusView = memo(({ today, refreshKey, onSelectDay }) => {
   const [localTick, setLocalTick] = useState(0);
@@ -1258,7 +1434,12 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
                     </div>
                   );})}
                   {m>0&&sess.length>1&&<div className="past-book-meta" style={{color:"#4a9a9a",fontWeight:500}}>Total: {fmtMins(m)}</div>}
-                  {b.notes&&<div className="past-book-notes">{b.notes}</div>}
+                  {bookNotes(b).filter(n=>n.text?.trim()).map(n=>(
+                    <div key={n.id} className="past-book-note">
+                      <div className="past-book-note-ts">{n.ts?fmtTime(n.ts):"earlier"}</div>
+                      <div className="past-book-note-txt">{n.text}</div>
+                    </div>
+                  ))}
                 </div>
               );
             })}
@@ -1430,7 +1611,7 @@ const SearchView = memo(({ entries, onSelect }) => {
   const [q,setQ] = useState("");
   const results  = q.trim()
     ? entries.filter(e=>{
-        const blob=[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),e.location||"",...(e.books||[]).map(b=>`${b.title} ${b.author} ${b.notes}`),...(e.myQuotes||[]).map(q=>`${q.text} ${q.source}`),...(e.notes||[]).map(n=>`${n.source||""} ${n.text||""}`)].join(" ").toLowerCase();
+        const blob=[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),e.location||"",...(e.books||[]).map(b=>`${b.title} ${b.author} ${bookNotes(b).map(n=>n.text||"").join(" ")}`),...(e.myQuotes||[]).map(q=>`${q.text} ${q.source}`),...(e.notes||[]).map(n=>`${n.source||""} ${n.text||""}`)].join(" ").toLowerCase();
         return blob.includes(q.toLowerCase());
       }).slice(0,20)
     : [];
@@ -1442,7 +1623,7 @@ const SearchView = memo(({ entries, onSelect }) => {
     const snip=(start>0?"…":"")+text.slice(start,idx+q.length+60)+(text.length>idx+q.length+60?"…":"");
     return snip.split(new RegExp(`(${q})`,"gi")).map((p,i)=>p.toLowerCase()===q.toLowerCase()?<mark key={i}>{p}</mark>:p);
   };
-  const blob=(e)=>[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),...(e.myQuotes||[]).map(q=>q.text||""),...(e.notes||[]).map(n=>n.text||"")].join(" ");
+  const blob=(e)=>[...(e.diaryBlocks||[]).map(b=>b.text||""),e.diary||"",...(e.todos||[]).map(getTxt),...(e.gratitude||[]),...(e.myQuotes||[]).map(q=>q.text||""),...(e.notes||[]).map(n=>n.text||""),...(e.books||[]).flatMap(b=>[b.title||"",...bookNotes(b).map(n=>n.text||"")])].join(" ");
   return (
     <div className="search-view">
       <div className="eyebrow">Search</div>
@@ -1481,7 +1662,7 @@ const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, driveCo
       const todos  =(e.todos||[]).filter(t=>getTxt(t)).map(t=>`- [${getDone(t)?"x":" "}] ${getTxt(t)}`).join("\n");
       const story  =(e.diaryBlocks||[]).filter(b=>b.text?.trim()).map(b=>`${b.ts?`*${fmtTime(b.ts)}*\n\n`:""}${b.text}`).join("\n\n---\n\n");
       const entNotes=(e.notes||[]).filter(n=>n.text?.trim()).map(n=>`${n.source?`**${n.source}**\n\n`:""}${n.text}`).join("\n\n---\n\n");
-      const books  =(e.books||[]).filter(b=>b.title).map(b=>{const m=bookMins(b);const sess=(b.sessions||[]).filter(s=>s.startTime).map(s=>`${s.startTime}${s.endTime?`→${s.endTime}`:" (in progress)"}`).join(", ");return `📖 **${b.title}**${b.author?` — ${b.author}`:""}${sess?` · ${sess}`:""}${m>0?` (${fmtMins(m)})`:""}${b.notes?`\n\n> ${b.notes}`:""}`}).join("\n\n");
+      const books  =(e.books||[]).filter(b=>b.title).map(b=>{const m=bookMins(b);const sess=(b.sessions||[]).filter(s=>s.startTime).map(s=>`${s.startTime}${s.endTime?`→${s.endTime}`:" (in progress)"}`).join(", ");return `📖 **${b.title}**${b.author?` — ${b.author}`:""}${sess?` · ${sess}`:""}${m>0?` (${fmtMins(m)})`:""}${bookNotes(b).filter(n=>n.text?.trim()).map(n=>`\n\n> ${n.ts?`*${fmtTime(n.ts)}* — `:""}${n.text.replace(/\n/g,"\n> ")}`).join("")}`}).join("\n\n");
       const quotes =(e.myQuotes||[]).filter(q=>q.text?.trim()).map(q=>`> "${q.text}"${q.source?`\n> — ${q.source}`:""}`).join("\n\n");
       const grat   =(e.gratitude||[]).filter(g=>g?.trim()).map((g,i)=>`${i+1}. ${g}`).join("\n");
       const loc    = e.location?`📍 ${e.location}\n\n`:"";
@@ -1587,6 +1768,7 @@ const NAVS = [
   {key:"write",  icon:"✦",  label:"Write"},
   {key:"focus",  icon:"◎",  label:"Focus"},
   {key:"ideas",  icon:"✧",  label:"Ideas"},
+  {key:"reading",icon:"❧",  label:"Books"},
   {key:"month",  icon:"◫",  label:"Month"},
   {key:"search", icon:"⌕",  label:"Search"},
   {key:"habits", icon:"◐",  label:"Habits"},
@@ -1606,6 +1788,7 @@ export default function App() {
   const [focusTick,     setFocusTick]   = useState(0);
   const [habitsTick,    setHabitsTick]  = useState(0);
   const [ideasTick,     setIdeasTick]   = useState(0);
+  const [readingTick,   setReadingTick] = useState(0);
   const [driveStatus,   setDS]          = useState("");
   const [driveLoading,  setDL]          = useState(false);
   const [lastSync,      setLastSync]    = useState("");
@@ -1743,6 +1926,7 @@ export default function App() {
     if(newTab==="focus") setFocusTick(t=>t+1);
     if(newTab==="habits") setHabitsTick(t=>t+1);
     if(newTab==="ideas") setIdeasTick(t=>t+1);
+    if(newTab==="reading") setReadingTick(t=>t+1);
     setTab(newTab);
   },[tab,selDate,doPullFromDrive]);
 
@@ -1884,6 +2068,9 @@ export default function App() {
           </div>
           <div style={{display:tab==="ideas"?"block":"none"}}>
             <IdeasView refreshKey={ideasTick}/>
+          </div>
+          <div style={{display:tab==="reading"?"block":"none"}}>
+            <ReadingView refreshKey={readingTick} onSelectDay={date=>{selectDay(date);switchTab("write");}}/>
           </div>
           <div style={{display:tab==="month"?"block":"none"}}>
             <MonthView calMonth={calMonth} setCalMonth={setCalMonth} entrySet={entrySet} selectedDate={selDate} today={today} streak={streak} totalDays={totalDays} onSelect={selectDay}/>
