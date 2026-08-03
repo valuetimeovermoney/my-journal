@@ -1142,7 +1142,7 @@ const IdeasView = memo(({ refreshKey }) => {
 });
 
 // ─── ReadingView (all book notes across all days, grouped by book) ────────────
-const BookNoteCard = memo(({ note, first, onSave, onDelete, onOpenDay }) => {
+const BookNoteCard = memo(({ note, first, autoFocus, onSave, onDelete, onOpenDay }) => {
   const [text, setText] = useState(note.text);
   const timer = useRef(null);
   const grow  = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
@@ -1165,15 +1165,17 @@ const BookNoteCard = memo(({ note, first, onSave, onDelete, onOpenDay }) => {
         </span>
         <button className="book-del" onClick={onDelete}>×</button>
       </div>
-      <textarea className="bnote-ta" value={text} placeholder="Reading note…"
+      <textarea className="bnote-ta" value={text} placeholder="Reading note…" autoFocus={autoFocus}
         onChange={e=>{handleChange(e.target.value);grow(e.target);}}
         onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
     </div>
   );
 });
 
-const ReadingView = memo(({ refreshKey, onSelectDay }) => {
-  const [tick, setTick] = useState(0);
+const ReadingView = memo(({ refreshKey, today, onSelectDay, onEntriesChanged }) => {
+  const [tick, setTick]           = useState(0);
+  // A just-added note is still empty, so it would be filtered out — keep it visible.
+  const [newNoteId, setNewNoteId] = useState(null);
 
   const books = useMemo(()=>{
     const map = new Map();
@@ -1188,7 +1190,7 @@ const ReadingView = memo(({ refreshKey, onSelectDay }) => {
         rec.sessions += (b.sessions||[]).filter(s=>s.startTime).length;
         rec.days.add(e.date);
         if(e.date > rec.lastDate) rec.lastDate = e.date;
-        bookNotes(b).filter(n=>n.text?.trim())
+        bookNotes(b).filter(n=>n.text?.trim()||n.id===newNoteId)
           .forEach(n=>rec.notes.push({...n, date:e.date, bookId:b.id}));
       });
     });
@@ -1196,19 +1198,39 @@ const ReadingView = memo(({ refreshKey, onSelectDay }) => {
       .map(r=>({...r, days:r.days.size,
         notes:r.notes.sort((a,b)=>b.date.localeCompare(a.date)||(b.ts||0)-(a.ts||0))}))
       .sort((a,b)=>b.lastDate.localeCompare(a.lastDate));
-  },[refreshKey, tick]);
+  },[refreshKey, tick, newNoteId]);
 
-  // Notes live inside the daily entries — edit them in place there.
+  // Notes live inside the daily entries — these write straight through to the
+  // day they belong to, so both views stay in sync either way you enter them.
   const saveNote = useCallback((date,bookId,noteId,text)=>{
     const e = load(date);
     save(date,{...e, books:(e.books||[]).map(b=>b.id!==bookId?b:{...b,notes:bookNotes(b).map(n=>n.id===noteId?{...n,text}:n)})});
-  },[]);
+    onEntriesChanged?.();
+  },[onEntriesChanged]);
 
   const deleteNote = useCallback((date,bookId,noteId)=>{
     const e = load(date);
     save(date,{...e, books:(e.books||[]).map(b=>b.id!==bookId?b:{...b,notes:bookNotes(b).filter(n=>n.id!==noteId)})});
     setTick(t=>t+1);
-  },[]);
+    onEntriesChanged?.();
+  },[onEntriesChanged]);
+
+  // A note added here is stamped now, so it lands in today's entry. If the book
+  // wasn't opened today it's added to today with no reading session — just the note.
+  const addNote = useCallback((title,author)=>{
+    const e    = load(today);
+    const key  = normTitle(title);
+    const note = blankBookNote();
+    const list = e.books||[];
+    const idx  = list.findIndex(b=>normTitle(b.title)===key);
+    const books = idx>=0
+      ? list.map((b,i)=>i!==idx?b:{...b, notes:[...bookNotes(b), note]})
+      : [...list, {id:uid(), title, author:author||"", sessions:[], notes:[note]}];
+    save(today,{...e, books});
+    setNewNoteId(note.id);
+    setTick(t=>t+1);
+    onEntriesChanged?.();
+  },[today, onEntriesChanged]);
 
   const totalMins  = books.reduce((a,b)=>a+b.mins,0);
   const totalNotes = books.reduce((a,b)=>a+b.notes.length,0);
@@ -1249,10 +1271,14 @@ const ReadingView = memo(({ refreshKey, onSelectDay }) => {
             ?<div className="rv-no-notes">No notes for this book yet.</div>
             :b.notes.map((n,i)=>(
               <BookNoteCard key={`${n.date}-${n.id}`} note={n} first={i===0}
+                autoFocus={n.id===newNoteId}
                 onSave={text=>saveNote(n.date,n.bookId,n.id,text)}
                 onDelete={()=>deleteNote(n.date,n.bookId,n.id)}
                 onOpenDay={()=>onSelectDay(n.date)}/>
             ))}
+          <button className="bnote-add" style={{marginTop:13}} onClick={()=>addNote(b.title,b.author)}>
+            + Add a note · {fmtTime(nowTs())}
+          </button>
         </div>
       ))}
     </div>
@@ -1797,6 +1823,8 @@ export default function App() {
   const [driveNeedsReauth, setNeedsReauth] = useState(false);
   const saveTimer  = useRef(null);
   const autoSTimer = useRef(null);
+  const entryRef   = useRef(entry);   // latest entry, for flushing on tab switch
+  entryRef.current = entry;
   const mainRef    = useRef(null);
   const configured = GOOGLE_CLIENT_ID !== "YOUR_GOOGLE_CLIENT_ID_HERE";
 
@@ -1922,6 +1950,9 @@ export default function App() {
   },[configured,driveConnected,selDate]);
 
   const switchTab = useCallback(newTab=>{
+    // Flush the debounced save before leaving Write, so views that read straight
+    // from localStorage (Books, Focus) never see a stale entry.
+    if(tab==="write"&&newTab!=="write"){ clearTimeout(saveTimer.current); save(selDate,entryRef.current); }
     if(newTab==="write"&&tab!=="write"){ setEntry(load(selDate)); doPullFromDrive(true); }
     if(newTab==="focus") setFocusTick(t=>t+1);
     if(newTab==="habits") setHabitsTick(t=>t+1);
@@ -2070,7 +2101,9 @@ export default function App() {
             <IdeasView refreshKey={ideasTick}/>
           </div>
           <div style={{display:tab==="reading"?"block":"none"}}>
-            <ReadingView refreshKey={readingTick} onSelectDay={date=>{selectDay(date);switchTab("write");}}/>
+            <ReadingView refreshKey={readingTick} today={today}
+              onSelectDay={date=>{selectDay(date);switchTab("write");}}
+              onEntriesChanged={()=>{setEntries(allEntries());setEntry(load(selDate));}}/>
           </div>
           <div style={{display:tab==="month"?"block":"none"}}>
             <MonthView calMonth={calMonth} setCalMonth={setCalMonth} entrySet={entrySet} selectedDate={selDate} today={today} streak={streak} totalDays={totalDays} onSelect={selectDay}/>
