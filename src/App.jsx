@@ -114,6 +114,43 @@ const blankHabit  = () => ({ id:uid(), name:"" });
 const loadHabits  = () => { try{const r=localStorage.getItem(HABITS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
 const saveHabits  = h => localStorage.setItem(HABITS_KEY, JSON.stringify(h));
 
+// ─── Goals helpers ────────────────────────────────────────────────────────────
+const GOALS_KEY  = "myjournal_goals";
+const blankGoal  = () => ({ id:uid(), title:"", why:"", target:"", done:false, createdAt:nowTs(), updatedAt:nowTs(), steps:[] });
+const blankStep  = () => ({ id:uid(), title:"", target:"", done:false });
+const loadGoals  = () => { try{const r=localStorage.getItem(GOALS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
+const saveGoals  = g => localStorage.setItem(GOALS_KEY, JSON.stringify(g));
+
+// Goals are edited constantly (ticking off steps), so a union by id isn't
+// enough — for a goal both sides have, keep whichever was edited last.
+const mergeGoals = (local, remote) => {
+  const byId = new Map(local.map(g=>[g.id,g]));
+  (remote||[]).forEach(r=>{
+    if(!r?.id) return;
+    const l = byId.get(r.id);
+    if(!l || (Number(r.updatedAt)||0) > (Number(l.updatedAt)||0)) byId.set(r.id,r);
+  });
+  return [...byId.values()];
+};
+
+// Whole days from today until a YYYY-MM-DD target; null when undated.
+const daysUntil = ymd => {
+  if(!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const [y,m,d] = ymd.split("-").map(Number);
+  const t = new Date(y,m-1,d); t.setHours(0,0,0,0);
+  const n = new Date();       n.setHours(0,0,0,0);
+  return Math.round((t-n)/86400000);
+};
+const fmtCountdown = n => {
+  if(n===null) return "no date";
+  if(n===0)    return "today";
+  if(n<0)      return `${Math.abs(n)}d overdue`;
+  if(n<31)     return `${n}d left`;
+  if(n<365)    return `${Math.round(n/30)}mo left`;
+  const y = n/365;
+  return `${y>=2?Math.round(y):y.toFixed(1)}y left`;
+};
+
 // ─── Ideas helpers ────────────────────────────────────────────────────────────
 const IDEAS_KEY  = "myjournal_ideas";
 const blankIdea  = () => ({ id:uid(), title:"", description:"", createdAt:nowTs(), rank:0 });
@@ -180,9 +217,77 @@ const migrate = p => {
   return p;
 };
 
+// Key-sorted stringify, so two entries with the same content compare equal
+// regardless of the order their fields happen to be stored in.
+const stableStr = v => JSON.stringify(v, (k,val)=>
+  (val && typeof val==="object" && !Array.isArray(val))
+    ? Object.keys(val).sort().reduce((o,key)=>{o[key]=val[key];return o;},{})
+    : val);
+
+// True when an entry holds nothing worth keeping. `location` is excluded — it
+// defaults to DEFAULT_LOCATION, so it is present even on an untouched day.
+const entryIsEmpty = e => {
+  if(!e || typeof e!=="object") return true;
+  const has = v => typeof v==="string" ? !!v.trim() : !!v;
+  if((e.diaryBlocks||[]).some(b=>has(b?.text)))    return false;
+  if((e.todos||[]).some(t=>has(getTxt(t))))        return false;
+  if((e.gratitude||[]).some(has))                  return false;
+  if((e.notes||[]).some(n=>has(n?.text)))          return false;
+  if((e.myQuotes||[]).some(q=>has(q?.text)))       return false;
+  if((e.books||[]).some(b=>has(b?.title)||bookNotes(b).some(n=>has(n?.text)))) return false;
+  if(has(e.weeklyReflection))                      return false;
+  if(Object.values(e.habitChecks||{}).some(Boolean)) return false;
+  return true;
+};
+
 const load  = dk => { try { const r=localStorage.getItem(KEY+dk); if(r) return migrate(JSON.parse(r)); } catch {} return blankEntry(); };
-const save  = (dk,data) => localStorage.setItem(KEY+dk, JSON.stringify(data));
+
+// Stamps updatedAt, but only when the content actually changed — otherwise
+// merely opening the app would make this device look "newer" than one that
+// really wrote something, and win the merge below.
+const save = (dk,data) => {
+  const next = {...data}; delete next.updatedAt;
+  const body = stableStr(next);
+  let prevBody = null;
+  try{
+    const r=localStorage.getItem(KEY+dk);
+    if(r){ const p=JSON.parse(r); delete p.updatedAt; prevBody=stableStr(p); }
+  }catch{}
+  if(prevBody===body) return;
+  localStorage.setItem(KEY+dk, JSON.stringify({...next, updatedAt:Date.now()}));
+};
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Which of two versions of the same day to keep. Content always beats blank;
+// otherwise the more recently edited one wins. Entries written before
+// updatedAt existed count as 0, so a local one is kept over a legacy remote —
+// the safe direction, and it self-corrects the next time either is edited.
+const pickNewer = (localE, driveE) => {
+  const lEmpty = entryIsEmpty(localE), dEmpty = entryIsEmpty(driveE);
+  if(lEmpty && !dEmpty) return driveE;
+  if(dEmpty && !lEmpty) return localE;
+  return (Number(driveE?.updatedAt)||0) > (Number(localE?.updatedAt)||0) ? driveE : localE;
+};
+
+// Write Drive's copy of a day into localStorage only when doing so cannot
+// destroy newer local work. Returns true if it wrote.
+const applyDriveEntry = (date, driveEntry) => {
+  const incoming = migrate({...driveEntry});
+  let local = null;
+  try{ const r=localStorage.getItem(KEY+date); if(r) local=migrate(JSON.parse(r)); }catch{}
+  if(local && pickNewer(local, {...incoming, updatedAt:driveEntry?.updatedAt}) === local) return false;
+  localStorage.setItem(KEY+date, JSON.stringify({...incoming, updatedAt:driveEntry?.updatedAt||Date.now()}));
+  return true;
+};
+
+const applyDriveEntries = list => {
+  let n=0;
+  (list||[]).forEach(e=>{
+    if(e?.date && DATE_RE.test(e.date)){ const {date,...rest}=e; if(applyDriveEntry(date,rest)) n++; }
+  });
+  return n;
+};
 const allEntries = () => {
   const out=[];
   for(let i=0;i<localStorage.length;i++){
@@ -243,7 +348,7 @@ const getDriveFileId = async token => {
 };
 const saveToDrive = async (entries, token) => {
   if(!token) token=await getToken();
-  const content=JSON.stringify({v:2,entries,habits:loadHabits(),ideas:loadIdeas()},null,2);
+  const content=JSON.stringify({v:2,entries,habits:loadHabits(),ideas:loadIdeas(),goals:loadGoals()},null,2);
   const fileId=await getDriveFileId(token);
   let url;
   if(!fileId){
@@ -266,7 +371,9 @@ const loadFromDrive = async (token) => {
 };
 
 // Merge local entries with Drive entries, then save back to Drive.
-// Local entry wins for any date that exists locally; Drive fills in dates missing locally.
+// For a date both sides have, the more recently edited copy wins — pushing from
+// a device that hasn't synced in a while must not clobber newer work from another.
+// Drive fills in dates missing locally.
 const mergeAndSaveToDrive = async (localEntries, token) => {
   if(!token) token=await getToken();
   let toSave = localEntries;
@@ -274,9 +381,14 @@ const mergeAndSaveToDrive = async (localEntries, token) => {
     const driveData = await loadFromDrive(token);
     if(driveData){
       const driveEntries = Array.isArray(driveData.entries)?driveData.entries:[];
+      const driveByDate = new Map(driveEntries.filter(e=>e?.date && DATE_RE.test(e.date)).map(e=>[e.date,e]));
       const localDates = new Set(localEntries.map(e=>e.date));
-      const extra = driveEntries.filter(e=>e.date && DATE_RE.test(e.date) && !localDates.has(e.date));
-      if(extra.length) toSave = [...localEntries, ...extra];
+      toSave = localEntries.map(e=>{
+        const d = driveByDate.get(e.date);
+        return d ? pickNewer(e,d) : e;
+      });
+      const extra = [...driveByDate.values()].filter(e=>!localDates.has(e.date));
+      if(extra.length) toSave = [...toSave, ...extra];
       const driveHabits = Array.isArray(driveData.habits)?driveData.habits:[];
       if(driveHabits.length){
         const local=loadHabits();
@@ -290,6 +402,12 @@ const mergeAndSaveToDrive = async (localEntries, token) => {
         const localIds=new Set(local.map(i=>i.id));
         const extraI=driveIdeas.filter(i=>i.id&&!localIds.has(i.id));
         if(extraI.length) saveIdeas([...local,...extraI]);
+      }
+      const driveGoals = Array.isArray(driveData.goals)?driveData.goals:[];
+      if(driveGoals.length){
+        const local=loadGoals();
+        const mergedG=mergeGoals(local,driveGoals);
+        if(stableStr(mergedG)!==stableStr(local)) saveGoals(mergedG);
       }
     }
   } catch {}
@@ -466,6 +584,51 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .idea-rank-lbl{font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:1px;margin-right:4px;}
 .idea-star{font-size:20px;cursor:pointer;line-height:1;transition:transform .1s;user-select:none;}
 .idea-star:hover{transform:scale(1.2);}
+
+/* ── goals view ── */
+.goals-view{padding:28px 52px 80px;max-width:760px;}
+.gv-sort{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;align-items:center;}
+.gv-sort-btn{padding:5px 14px;border:1.5px solid #e0d8cc;border-radius:20px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#888;cursor:pointer;background:none;transition:all .2s;}
+.gv-sort-btn.active{background:#1a1a1a;color:#F5F0E8;border-color:#1a1a1a;}
+.goal-card{background:white;border-radius:10px;padding:15px 18px;margin-bottom:12px;border:1.5px solid #dde6ef;transition:border-color .2s,opacity .2s;}
+.goal-card:focus-within{border-color:#5a7fa860;}
+.goal-card.is-done{opacity:.5;}
+.goal-top{display:flex;align-items:center;gap:8px;}
+.goal-caret{background:none;border:none;color:#b8c6d4;cursor:pointer;font-size:11px;padding:3px 5px;flex-shrink:0;transition:color .15s;line-height:1;}
+.goal-caret:hover{color:#5a7fa8;}
+.goal-title-inp{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:'Playfair Display',serif;font-size:17px;font-weight:600;color:#1a1a1a;}
+.goal-title-inp::placeholder{color:#ccc;font-weight:400;}
+.goal-card.is-done .goal-title-inp{text-decoration:line-through;color:#999;}
+.goal-actions{display:flex;gap:1px;flex-shrink:0;}
+.goal-btn{background:none;border:none;color:#d5dde5;cursor:pointer;font-size:13px;padding:3px 4px;line-height:1;transition:color .15s;}
+.goal-btn:hover{color:#5a7fa8;}
+.goal-btn.del:hover{color:#e07070;}
+.goal-btn:disabled{opacity:.3;cursor:default;}
+.goal-meta{display:flex;align-items:center;gap:10px;margin-top:9px;flex-wrap:wrap;}
+.goal-date{border:none;outline:none;background:#f2f6fa;border-radius:6px;padding:4px 8px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:12px;color:#5a7fa8;cursor:pointer;flex-shrink:0;}
+.goal-date::-webkit-calendar-picker-indicator{opacity:.45;cursor:pointer;}
+.goal-cd{font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;background:#eef3f8;color:#5a7fa8;flex-shrink:0;}
+.goal-cd.none{background:#f4f4f4;color:#bbb;font-weight:400;}
+.goal-cd.soon{background:#fdf3e3;color:#c98a2e;}
+.goal-cd.over{background:#fdecec;color:#c05050;}
+.goal-prog{flex:1;min-width:70px;height:5px;border-radius:3px;background:#eef2f6;overflow:hidden;}
+.goal-prog-fill{height:100%;background:#5a7fa8;border-radius:3px;transition:width .3s;}
+.goal-prog-lbl{font-size:10px;color:#a8b8c8;flex-shrink:0;}
+.goal-body{margin-top:13px;padding-top:12px;border-top:1px solid #f0f4f8;}
+.goal-why{width:100%;border:none;outline:none;background:transparent;resize:none;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:13px;font-weight:300;line-height:1.7;color:#666;min-height:32px;margin-bottom:12px;}
+.goal-why::placeholder{color:#ccc;}
+.goal-sec-lbl{font-size:10px;color:#a8b8c8;text-transform:uppercase;letter-spacing:1px;margin-bottom:7px;}
+.step-row{display:flex;align-items:center;gap:9px;background:#f7fafc;border-radius:7px;padding:7px 10px;margin-bottom:5px;}
+.step-inp{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:13px;font-weight:300;color:#1a1a1a;}
+.step-inp::placeholder{color:#c5cfd8;}
+.step-inp.struck{text-decoration:line-through;color:#bbb;}
+.step-date{border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#8fa8bf;cursor:pointer;flex-shrink:0;width:26px;transition:width .2s;}
+.step-date.set{width:100px;}
+.step-date::-webkit-calendar-picker-indicator{opacity:.4;cursor:pointer;}
+.step-cd{font-size:10px;color:#a8b8c8;flex-shrink:0;}
+.step-cd.over{color:#c05050;}
+.goal-add-step{margin-top:2px;background:none;border:1.5px dashed #dde6ef;border-radius:7px;padding:7px 10px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:12px;color:#a8b8c8;cursor:pointer;width:100%;text-align:left;transition:all .2s;}
+.goal-add-step:hover{border-color:#5a7fa8;color:#5a7fa8;background:#5a7fa808;}
 
 /* ── book notes (timestamped, inside a book card) ── */
 .bnote-list{display:flex;flex-direction:column;gap:7px;}
@@ -674,7 +837,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .topbar{display:flex;}
   .desk-nav{display:none;}
   .bot-nav{display:block;}
-  .pg-head,.insp-bar,.loc-bar,.stats-row,.content,.past-wrap,.month-view,.search-view,.export-view,.ideas-view,.habits-view,.reading-view{padding-left:18px;padding-right:18px;}
+  .pg-head,.insp-bar,.loc-bar,.stats-row,.content,.past-wrap,.month-view,.search-view,.export-view,.ideas-view,.habits-view,.reading-view,.goals-view{padding-left:18px;padding-right:18px;}
   .insp-bar,.loc-bar{margin-left:18px;margin-right:18px;}
   .pg-head{padding-top:18px;}
   .pg-title{font-size:26px;}
@@ -682,12 +845,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .toast{bottom:80px;right:16px;}
   .book-fields{grid-template-columns:1fr;}
   /* Prevent iOS auto-zoom on input focus (triggered when font-size < 16px) */
-  .ti,.loc-inp,.db-ta,.bf-inp,.mq-ta,.gi,.idea-title-inp,.idea-desc-ta,.bnote-ta{font-size:16px;}
+  .ti,.loc-inp,.db-ta,.bf-inp,.mq-ta,.gi,.idea-title-inp,.idea-desc-ta,.bnote-ta,
+  .goal-title-inp,.goal-why,.step-inp{font-size:16px;}
+  /* the date pickers stay small — they open a native picker, so no zoom risk */
+  .step-date.set{width:92px;}
 }
-/* keep the 8-item bottom nav from overflowing on narrow phones */
-@media(max-width:420px){
-  .bn-item{padding:4px 2px;font-size:8px;letter-spacing:.2px;}
+/* keep the 9-item bottom nav from overflowing on narrow phones */
+@media(max-width:480px){
+  .bn-item{padding:4px 1px;font-size:8px;letter-spacing:.1px;gap:2px;}
   .bn-ico{font-size:15px;}
+}
+@media(max-width:360px){
+  .bn-item{font-size:7px;}
+  .bn-ico{font-size:14px;}
 }
 `;
 
@@ -1137,6 +1307,168 @@ const IdeasView = memo(({ refreshKey }) => {
           onChange={updated=>updIdea(idea.id,updated)}
           onDelete={()=>delIdea(idea.id)}/>
       ))}
+    </div>
+  );
+});
+
+// ─── GoalsView (big goals, each broken into smaller steps, on a timeline) ─────
+const cdClass = n => n===null ? "none" : n<0 ? "over" : n<=30 ? "soon" : "";
+
+const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, onDelete, onMove }) => {
+  const grow  = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
+  const set   = (f,v)=>onChange({...goal,[f]:v});
+  const steps = goal.steps||[];
+  const real  = steps.filter(s=>s.title?.trim());
+  const done  = real.filter(s=>s.done).length;
+  const pct   = real.length ? Math.round(done/real.length*100) : (goal.done?100:0);
+  const cd    = daysUntil(goal.target);
+
+  const setStep = (id,f,v)=>set("steps",steps.map(s=>s.id===id?{...s,[f]:v}:s));
+  const addStep = ()=>set("steps",[...steps,blankStep()]);
+  const delStep = id=>set("steps",steps.filter(s=>s.id!==id));
+
+  return (
+    <div className={`goal-card${goal.done?" is-done":""}`}>
+      <div className="goal-top">
+        <button className="goal-caret" onClick={onToggle} title={collapsed?"Expand":"Collapse"}>{collapsed?"▶":"▼"}</button>
+        <div className={`ck${goal.done?" done":""}`} onClick={()=>set("done",!goal.done)} title="Mark goal achieved">{goal.done&&"✓"}</div>
+        <input className="goal-title-inp" value={goal.title} placeholder="A big goal…"
+          onChange={e=>set("title",e.target.value)}/>
+        <div className="goal-actions">
+          <button className="goal-btn" disabled={!canUp}   onClick={()=>onMove(-1)} title="Move up">↑</button>
+          <button className="goal-btn" disabled={!canDown} onClick={()=>onMove(1)}  title="Move down">↓</button>
+          <button className="goal-btn del" onClick={onDelete} title="Delete goal">×</button>
+        </div>
+      </div>
+
+      <div className="goal-meta">
+        <input className="goal-date" type="date" value={goal.target||""} onChange={e=>set("target",e.target.value)}/>
+        <span className={`goal-cd${cdClass(cd)?" "+cdClass(cd):""}`}>{fmtCountdown(cd)}</span>
+        {real.length>0&&<>
+          <div className="goal-prog"><div className="goal-prog-fill" style={{width:`${pct}%`}}/></div>
+          <span className="goal-prog-lbl">{done}/{real.length}</span>
+        </>}
+      </div>
+
+      {!collapsed&&(
+        <div className="goal-body">
+          <textarea className="goal-why" value={goal.why||""} placeholder="Why does this matter? What does done look like?"
+            onChange={e=>{set("why",e.target.value);grow(e.target);}}
+            onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+          <div className="goal-sec-lbl">Smaller goals</div>
+          {steps.map(s=>{
+            const scd=daysUntil(s.target);
+            return (
+              <div key={s.id} className="step-row">
+                <div className={`ck${s.done?" done":""}`} onClick={()=>setStep(s.id,"done",!s.done)}>{s.done&&"✓"}</div>
+                <input className={`step-inp${s.done?" struck":""}`} value={s.title} placeholder="A step toward it…"
+                  onChange={e=>setStep(s.id,"title",e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addStep();}}}/>
+                {scd!==null&&!s.done&&<span className={`step-cd${scd<0?" over":""}`}>{fmtCountdown(scd)}</span>}
+                <input className={`step-date${s.target?" set":""}`} type="date" value={s.target||""}
+                  title="Target date" onChange={e=>setStep(s.id,"target",e.target.value)}/>
+                <button className="goal-btn del" onClick={()=>delStep(s.id)}>×</button>
+              </div>
+            );
+          })}
+          <button className="goal-add-step" onClick={addStep}>+ Add a smaller goal</button>
+        </div>
+      )}
+    </div>
+  );
+});
+
+const GoalsView = memo(({ refreshKey }) => {
+  const [goals,     setGoals]     = useState(()=>loadGoals());
+  const [sort,      setSort]      = useState("mine");
+  const [collapsed, setCollapsed] = useState({});
+
+  useEffect(()=>setGoals(loadGoals()),[refreshKey]);
+
+  const persist = useCallback(next=>{ setGoals(next); saveGoals(next); },[]);
+
+  // Stamp the edited goal so another device can tell which version is newer.
+  const updGoal = useCallback((id,updated)=>{
+    persist(loadGoals().map(g=>g.id===id?{...updated,updatedAt:nowTs()}:g));
+  },[persist]);
+
+  const addGoal = useCallback(()=>{
+    const g=blankGoal();
+    persist([g,...loadGoals()]);
+    setCollapsed(c=>({...c,[g.id]:false}));
+  },[persist]);
+
+  const delGoal = useCallback(id=>persist(loadGoals().filter(g=>g.id!==id)),[persist]);
+
+  const moveGoal = useCallback((id,dir)=>{
+    const arr=loadGoals();
+    const i=arr.findIndex(g=>g.id===id), j=i+dir;
+    if(i<0||j<0||j>=arr.length) return;
+    [arr[i],arr[j]]=[arr[j],arr[i]];
+    persist(arr);
+  },[persist]);
+
+  // Achieved goals sink to the bottom either way; undated ones sort last by date.
+  const sorted = useMemo(()=>{
+    const byDate=(a,b)=>{
+      const da=daysUntil(a.target), db=daysUntil(b.target);
+      if(da===null&&db===null) return 0;
+      if(da===null) return 1;
+      if(db===null) return -1;
+      return da-db;
+    };
+    return [...goals].sort((a,b)=>(a.done?1:0)-(b.done?1:0)||(sort==="deadline"?byDate(a,b):0));
+  },[goals,sort]);
+
+  const open      = goals.filter(g=>!g.done).length;
+  const overdue   = goals.filter(g=>!g.done&&(daysUntil(g.target)??1)<0).length;
+  const manual    = sort==="mine";
+
+  return (
+    <div className="goals-view">
+      <div className="eyebrow">Where you're headed</div>
+      <h1 className="pg-title">My <em>Goals</em></h1>
+      <p style={{fontSize:13,color:"#aaa",fontWeight:300,marginTop:6,marginBottom:6}}>
+        Big goals first, each broken into smaller ones — with a date on whichever you want to track.
+      </p>
+      {goals.length>0&&(
+        <p style={{fontSize:12,color:overdue?"#c05050":"#5a7fa8",marginBottom:18}}>
+          {open} open · {goals.length-open} achieved{overdue?` · ${overdue} past due`:""}
+        </p>
+      )}
+
+      <button className="add-row" style={{marginBottom:16}} onClick={addGoal}>+ Add a big goal</button>
+
+      <div className="gv-sort">
+        <button className={`gv-sort-btn${manual?" active":""}`} onClick={()=>setSort("mine")}>My order</button>
+        <button className={`gv-sort-btn${!manual?" active":""}`} onClick={()=>setSort("deadline")}>By deadline</button>
+        {goals.length>1&&(
+          <button className="gv-sort-btn" onClick={()=>{
+            const allOpen=goals.every(g=>collapsed[g.id]);
+            setCollapsed(allOpen?{}:Object.fromEntries(goals.map(g=>[g.id,true])));
+          }}>
+            {goals.every(g=>collapsed[g.id])?"Expand all":"Collapse all"}
+          </button>
+        )}
+      </div>
+
+      {goals.length===0&&(
+        <div className="empty" style={{marginTop:16}}>
+          No goals yet. Add a big one above, then break it into smaller goals.
+        </div>
+      )}
+
+      {sorted.map(g=>{
+        const i=goals.findIndex(x=>x.id===g.id);
+        return (
+          <GoalCard key={g.id} goal={g} collapsed={!!collapsed[g.id]}
+            canUp={manual&&i>0} canDown={manual&&i<goals.length-1}
+            onToggle={()=>setCollapsed(c=>({...c,[g.id]:!c[g.id]}))}
+            onChange={updated=>updGoal(g.id,updated)}
+            onDelete={()=>delGoal(g.id)}
+            onMove={dir=>moveGoal(g.id,dir)}/>
+        );
+      })}
     </div>
   );
 });
@@ -1793,6 +2125,7 @@ const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, driveCo
 const NAVS = [
   {key:"write",  icon:"✦",  label:"Write"},
   {key:"focus",  icon:"◎",  label:"Focus"},
+  {key:"goals",  icon:"◈",  label:"Goals"},
   {key:"ideas",  icon:"✧",  label:"Ideas"},
   {key:"reading",icon:"❧",  label:"Books"},
   {key:"month",  icon:"◫",  label:"Month"},
@@ -1815,6 +2148,7 @@ export default function App() {
   const [habitsTick,    setHabitsTick]  = useState(0);
   const [ideasTick,     setIdeasTick]   = useState(0);
   const [readingTick,   setReadingTick] = useState(0);
+  const [goalsTick,     setGoalsTick]   = useState(0);
   const [driveStatus,   setDS]          = useState("");
   const [driveLoading,  setDL]          = useState(false);
   const [lastSync,      setLastSync]    = useState("");
@@ -1838,8 +2172,7 @@ export default function App() {
         const driveData=await loadFromDrive(token);
         if(!driveData) return;
         const data=Array.isArray(driveData.entries)?driveData.entries:[];
-        let count=0;
-        data.forEach(e=>{if(e.date && DATE_RE.test(e.date)){const {date,...rest}=e;localStorage.setItem(KEY+date,JSON.stringify(migrate(rest)));count++;}});
+        const count=applyDriveEntries(data);
         const driveHabits=Array.isArray(driveData.habits)?driveData.habits:[];
         if(driveHabits.length){
           const local=loadHabits();
@@ -1853,6 +2186,12 @@ export default function App() {
           const localIds=new Set(local.map(i=>i.id));
           const extraI=driveIdeas.filter(i=>i.id&&!localIds.has(i.id));
           if(extraI.length){saveIdeas([...local,...extraI]);setIdeasTick(t=>t+1);}
+        }
+        const driveGoals=Array.isArray(driveData.goals)?driveData.goals:[];
+        if(driveGoals.length){
+          const local=loadGoals();
+          const mergedG=mergeGoals(local,driveGoals);
+          if(stableStr(mergedG)!==stableStr(local)){saveGoals(mergedG);setGoalsTick(t=>t+1);}
         }
         if(count>0){
           setEntries(allEntries());
@@ -1881,19 +2220,22 @@ export default function App() {
       setEntries(updated);
       setSavedShow(true);
       setTimeout(()=>setSavedShow(false),2000);
-      // Auto-push to Drive if we have a cached token (no prompt)
+      // Auto-push to Drive (never prompts). The token is fetched inside the
+      // timer and falls back to a silent grant: the in-memory cache is empty
+      // after every reload, and without the fallback this push would silently
+      // never run while the pull still did — local work would then be
+      // overwritten by an older Drive copy it had never been sent to.
       if(configured&&driveConnected){
-        const token=getCachedToken();
-        if(token){
+        {
           clearTimeout(autoSTimer.current);
           autoSTimer.current=setTimeout(async()=>{
             try{
+              const token=getCachedToken()||await getTokenSilent();
+              if(!token) return;
               const merged=await mergeAndSaveToDrive(updated,token);
-              // Persist any Drive-only entries into local storage
-              const localDates=new Set(updated.map(e=>e.date));
-              merged.filter(e=>!localDates.has(e.date)).forEach(({date,...rest})=>
-                localStorage.setItem(KEY+date,JSON.stringify(migrate(rest))));
-              if(merged.length>updated.length) setEntries(allEntries());
+              // Bring down whatever Drive won — a date this device lacks, or a
+              // newer copy of one it has. Skips anything local already wins.
+              if(applyDriveEntries(merged)) setEntries(allEntries());
               const t=new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
               setLastSync(t);
               setDS(`✓ Auto-saved — ${t}`);
@@ -1921,8 +2263,7 @@ export default function App() {
       const driveData=await loadFromDrive(token);
       if(!driveData){ if(!silent) setDS("No backup found in Drive."); return; }
       const data=Array.isArray(driveData.entries)?driveData.entries:[];
-      let count=0;
-      data.forEach(e=>{if(e.date && DATE_RE.test(e.date)){const {date,...rest}=e;localStorage.setItem(KEY+date,JSON.stringify(migrate(rest)));count++;}});
+      const count=applyDriveEntries(data);
       const driveHabits=Array.isArray(driveData.habits)?driveData.habits:[];
       if(driveHabits.length){
         const local=loadHabits();
@@ -1936,6 +2277,12 @@ export default function App() {
         const localIds=new Set(local.map(i=>i.id));
         const extraI=driveIdeas.filter(i=>i.id&&!localIds.has(i.id));
         if(extraI.length){saveIdeas([...local,...extraI]);setIdeasTick(t=>t+1);}
+      }
+      const driveGoals=Array.isArray(driveData.goals)?driveData.goals:[];
+      if(driveGoals.length){
+        const local=loadGoals();
+        const mergedG=mergeGoals(local,driveGoals);
+        if(stableStr(mergedG)!==stableStr(local)){saveGoals(mergedG);setGoalsTick(t=>t+1);}
       }
       lastPullRef.current=Date.now();
       setEntries(allEntries());
@@ -1958,6 +2305,7 @@ export default function App() {
     if(newTab==="habits") setHabitsTick(t=>t+1);
     if(newTab==="ideas") setIdeasTick(t=>t+1);
     if(newTab==="reading") setReadingTick(t=>t+1);
+    if(newTab==="goals") setGoalsTick(t=>t+1);
     setTab(newTab);
   },[tab,selDate,doPullFromDrive]);
 
@@ -1966,10 +2314,7 @@ export default function App() {
     setDL(true); setDS("Syncing…");
     try{
       const merged=await mergeAndSaveToDrive(entries); // getToken() called inside, caches token; also syncs habits
-      const localDates=new Set(entries.map(e=>e.date));
-      merged.filter(e=>!localDates.has(e.date)).forEach(e=>
-        localStorage.setItem(KEY+e.date,JSON.stringify(migrate({...e}))));
-      if(merged.length>entries.length){ setEntries(allEntries()); setEntry(load(selDate)); }
+      if(applyDriveEntries(merged)){ setEntries(allEntries()); setEntry(load(selDate)); }
       setHabitsTick(t=>t+1);
       localStorage.setItem(DRIVE_CONNECTED_KEY,"1");
       setDriveConn(true);
@@ -1987,8 +2332,7 @@ export default function App() {
       const driveData=await loadFromDrive(); // interactive token
       if(!driveData){setDS("No backup found in Drive.");return;}
       const data=Array.isArray(driveData.entries)?driveData.entries:[];
-      let count=0;
-      data.forEach(e=>{if(e.date && DATE_RE.test(e.date)){const {date,...rest}=e;localStorage.setItem(KEY+date,JSON.stringify(migrate(rest)));count++;}});
+      const count=applyDriveEntries(data);
       const driveHabits=Array.isArray(driveData.habits)?driveData.habits:[];
       if(driveHabits.length){
         const local=loadHabits();
@@ -2002,6 +2346,12 @@ export default function App() {
         const localIds=new Set(local.map(i=>i.id));
         const extraI=driveIdeas.filter(i=>i.id&&!localIds.has(i.id));
         if(extraI.length){saveIdeas([...local,...extraI]);setIdeasTick(t=>t+1);}
+      }
+      const driveGoals=Array.isArray(driveData.goals)?driveData.goals:[];
+      if(driveGoals.length){
+        const local=loadGoals();
+        const mergedG=mergeGoals(local,driveGoals);
+        if(stableStr(mergedG)!==stableStr(local)){saveGoals(mergedG);setGoalsTick(t=>t+1);}
       }
       setEntries(allEntries());
       setEntry(load(selDate));
@@ -2096,6 +2446,9 @@ export default function App() {
           </div>
           <div style={{display:tab==="focus"?"block":"none"}}>
             <FocusView today={today} refreshKey={focusTick} onSelectDay={date=>{selectDay(date);switchTab("write");}}/>
+          </div>
+          <div style={{display:tab==="goals"?"block":"none"}}>
+            <GoalsView refreshKey={goalsTick}/>
           </div>
           <div style={{display:tab==="ideas"?"block":"none"}}>
             <IdeasView refreshKey={ideasTick}/>
