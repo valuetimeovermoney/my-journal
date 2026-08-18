@@ -121,9 +121,9 @@ const blankStep  = () => ({ id:uid(), title:"", target:"", done:false });
 const loadGoals  = () => { try{const r=localStorage.getItem(GOALS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
 const saveGoals  = g => localStorage.setItem(GOALS_KEY, JSON.stringify(g));
 
-// Goals are edited constantly (ticking off steps), so a union by id isn't
-// enough — for a goal both sides have, keep whichever was edited last.
-const mergeGoals = (local, remote) => {
+// Goals and reports are edited constantly (ticking things off), so a union by
+// id isn't enough — for an item both sides have, keep whichever was edited last.
+const mergeByNewer = (local, remote) => {
   const byId = new Map(local.map(g=>[g.id,g]));
   (remote||[]).forEach(r=>{
     if(!r?.id) return;
@@ -156,6 +156,26 @@ const IDEAS_KEY  = "myjournal_ideas";
 const blankIdea  = () => ({ id:uid(), title:"", description:"", createdAt:nowTs(), rank:0 });
 const loadIdeas  = () => { try{const r=localStorage.getItem(IDEAS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
 const saveIdeas  = ideas => localStorage.setItem(IDEAS_KEY, JSON.stringify(ideas));
+
+// ─── Annual report tracker helpers ────────────────────────────────────────────
+const REPORTS_KEY = "myjournal_reports";
+const blankReport = (status="planned") => ({ id:uid(), company:"", detail:"", status, due:"", readOn:status==="read"?todayKey():"", createdAt:nowTs(), updatedAt:nowTs() });
+const loadReports = () => { try{const r=localStorage.getItem(REPORTS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
+const saveReports = r => localStorage.setItem(REPORTS_KEY, JSON.stringify(r));
+
+// The week runs Monday → Sunday, matching the Sunday weekly reflection.
+const endOfWeekYmd   = () => { const d=new Date(); d.setDate(d.getDate()+((7-d.getDay())%7)); return dateKey(d); };
+const endOfMonthYmd  = () => { const d=new Date(); return dateKey(new Date(d.getFullYear(),d.getMonth()+1,0)); };
+const startOfWeekYmd = () => { const d=new Date(); d.setDate(d.getDate()-((d.getDay()+6)%7)); return dateKey(d); };
+const reportBucket = due => {
+  if(!due) return "someday";
+  const t=todayKey();
+  if(due<t)   return "overdue";
+  if(due===t) return "today";
+  if(due<=endOfWeekYmd())  return "week";
+  if(due<=endOfMonthYmd()) return "month";
+  return "later";
+};
 const dateKey     = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const calcHabitStreak = (habitId) => {
   let s=0; const d=new Date();
@@ -348,7 +368,7 @@ const getDriveFileId = async token => {
 };
 const saveToDrive = async (entries, token) => {
   if(!token) token=await getToken();
-  const content=JSON.stringify({v:2,entries,habits:loadHabits(),ideas:loadIdeas(),goals:loadGoals()},null,2);
+  const content=JSON.stringify({v:2,entries,habits:loadHabits(),ideas:loadIdeas(),goals:loadGoals(),reports:loadReports()},null,2);
   const fileId=await getDriveFileId(token);
   let url;
   if(!fileId){
@@ -406,8 +426,14 @@ const mergeAndSaveToDrive = async (localEntries, token) => {
       const driveGoals = Array.isArray(driveData.goals)?driveData.goals:[];
       if(driveGoals.length){
         const local=loadGoals();
-        const mergedG=mergeGoals(local,driveGoals);
+        const mergedG=mergeByNewer(local,driveGoals);
         if(stableStr(mergedG)!==stableStr(local)) saveGoals(mergedG);
+      }
+      const driveReports = Array.isArray(driveData.reports)?driveData.reports:[];
+      if(driveReports.length){
+        const local=loadReports();
+        const mergedR=mergeByNewer(local,driveReports);
+        if(stableStr(mergedR)!==stableStr(local)) saveReports(mergedR);
       }
     }
   } catch {}
@@ -630,6 +656,37 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .goal-add-step{margin-top:2px;background:none;border:1.5px dashed #dde6ef;border-radius:7px;padding:7px 10px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:12px;color:#a8b8c8;cursor:pointer;width:100%;text-align:left;transition:all .2s;}
 .goal-add-step:hover{border-color:#5a7fa8;color:#5a7fa8;background:#5a7fa808;}
 
+/* ── reports view (annual report tracker) ── */
+.reports-view{padding:28px 52px 80px;max-width:760px;}
+.rp-add{display:flex;gap:7px;margin-bottom:24px;flex-wrap:wrap;}
+.rp-add-inp{flex:1;min-width:150px;border:1.5px solid #e0d8cc;border-radius:8px;background:white;padding:10px 13px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:14px;color:#1a1a1a;outline:none;transition:border-color .2s;}
+.rp-add-inp:focus{border-color:#5a9a60;}
+.rp-add-inp::placeholder{color:#ccc;}
+.rp-btn{padding:9px 14px;border:1.5px solid #5a9a60;border-radius:8px;background:none;color:#5a9a60;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:12px;font-weight:500;cursor:pointer;transition:all .2s;white-space:nowrap;}
+.rp-btn:hover{background:#5a9a6012;}
+.rp-btn.solid{background:#5a9a60;color:white;}
+.rp-btn.solid:hover{background:#4c8852;}
+.rp-sec-hd{font-family:'Playfair Display',serif;font-size:17px;font-weight:600;margin-bottom:4px;}
+.rp-bucket{font-size:10px;color:#8ab890;text-transform:uppercase;letter-spacing:1.5px;margin:14px 0 6px;}
+.rp-bucket.over{color:#c05050;}
+.rp-card{display:flex;align-items:flex-start;gap:10px;background:white;border-radius:9px;padding:11px 12px;margin-bottom:6px;border:1.5px solid transparent;transition:border-color .2s;}
+.rp-card:focus-within{border-color:#5a9a6040;}
+.rp-card.read{border-color:#e6f0e7;}
+.rp-card .ck{margin-top:2px;}
+.rp-card .ck.done{background:#5a9a60;border-color:#5a9a60;}
+.rp-card-main{flex:1;min-width:0;}
+.rp-co-inp{width:100%;border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:14px;font-weight:500;color:#1a1a1a;}
+.rp-co-inp::placeholder{color:#ccc;}
+.rp-meta{display:flex;align-items:center;gap:5px;margin-top:6px;flex-wrap:wrap;}
+.rp-chip{padding:2px 9px;border:1.5px solid #e2ece3;border-radius:20px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;color:#8aa890;background:none;cursor:pointer;transition:all .2s;}
+.rp-chip:hover{border-color:#5a9a60;color:#5a9a60;}
+.rp-chip.on{background:#5a9a60;border-color:#5a9a60;color:white;}
+.rp-date{border:none;outline:none;background:#f2f8f3;border-radius:6px;padding:3px 7px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#5a9a60;cursor:pointer;}
+.rp-date::-webkit-calendar-picker-indicator{opacity:.45;cursor:pointer;}
+.rp-detail-inp{flex:1;min-width:120px;border:none;outline:none;background:transparent;border-bottom:1px solid #eef4ee;padding:2px 0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:12px;font-style:italic;color:#888;transition:border-color .2s;}
+.rp-detail-inp:focus{border-color:#5a9a60;}
+.rp-detail-inp::placeholder{color:#ccd8cc;}
+
 /* ── book notes (timestamped, inside a book card) ── */
 .bnote-list{display:flex;flex-direction:column;gap:7px;}
 .bnote{background:#f4fafa;border-radius:8px;border:1.5px solid transparent;padding:7px 12px 9px;transition:border-color .2s;}
@@ -837,7 +894,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .topbar{display:flex;}
   .desk-nav{display:none;}
   .bot-nav{display:block;}
-  .pg-head,.insp-bar,.loc-bar,.stats-row,.content,.past-wrap,.month-view,.search-view,.export-view,.ideas-view,.habits-view,.reading-view,.goals-view{padding-left:18px;padding-right:18px;}
+  .pg-head,.insp-bar,.loc-bar,.stats-row,.content,.past-wrap,.month-view,.search-view,.export-view,.ideas-view,.habits-view,.reading-view,.goals-view,.reports-view{padding-left:18px;padding-right:18px;}
   .insp-bar,.loc-bar{margin-left:18px;margin-right:18px;}
   .pg-head{padding-top:18px;}
   .pg-title{font-size:26px;}
@@ -846,13 +903,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .book-fields{grid-template-columns:1fr;}
   /* Prevent iOS auto-zoom on input focus (triggered when font-size < 16px) */
   .ti,.loc-inp,.db-ta,.bf-inp,.mq-ta,.gi,.idea-title-inp,.idea-desc-ta,.bnote-ta,
-  .goal-title-inp,.goal-why,.step-inp{font-size:16px;}
+  .goal-title-inp,.goal-why,.step-inp,.rp-add-inp,.rp-co-inp,.rp-detail-inp{font-size:16px;}
   /* the date pickers stay small — they open a native picker, so no zoom risk */
   .step-date.set{width:92px;}
 }
 /* keep the 9-item bottom nav from overflowing on narrow phones */
 @media(max-width:480px){
-  .bn-item{padding:4px 1px;font-size:8px;letter-spacing:.1px;gap:2px;}
+  .bn-item{flex:1;min-width:0;padding:4px 0;font-size:8px;letter-spacing:.1px;gap:2px;}
   .bn-ico{font-size:15px;}
 }
 @media(max-width:360px){
@@ -1469,6 +1526,123 @@ const GoalsView = memo(({ refreshKey }) => {
             onMove={dir=>moveGoal(g.id,dir)}/>
         );
       })}
+    </div>
+  );
+});
+
+// ─── ReportsView (annual reports — daily read log + reading plan) ─────────────
+const RPT_BUCKETS = [
+  {key:"overdue", label:"Overdue"},
+  {key:"today",   label:"Today"},
+  {key:"week",    label:"This Week"},
+  {key:"month",   label:"This Month"},
+  {key:"later",   label:"Later"},
+  {key:"someday", label:"No Date Yet"},
+];
+
+const ReportsView = memo(({ refreshKey }) => {
+  const [reports, setReports] = useState(()=>loadReports());
+  const [draft,   setDraft]   = useState("");
+
+  useEffect(()=>setReports(loadReports()),[refreshKey]);
+
+  const persist = next=>{ setReports(next); saveReports(next); };
+  const stamp   = r=>({...r, updatedAt:nowTs()});
+
+  // Enter / "Read today" logs it as read now; "Plan" queues it for this week.
+  const add = status=>{
+    const company=draft.trim(); if(!company) return;
+    const base={...blankReport(status), company};
+    if(status==="planned") base.due=endOfWeekYmd();
+    persist([base, ...loadReports()]);
+    setDraft("");
+  };
+  const upd = (id,patch)=>persist(loadReports().map(r=>r.id===id?stamp({...r,...patch}):r));
+  const del = id=>persist(loadReports().filter(r=>r.id!==id));
+
+  const planned = reports.filter(r=>r.status==="planned");
+  const readLog = [...reports.filter(r=>r.status==="read")]
+    .sort((a,b)=>(b.readOn||"").localeCompare(a.readOn||"")||(Number(b.updatedAt)||0)-(Number(a.updatedAt)||0));
+  const byBucket  = k=>planned.filter(r=>reportBucket(r.due)===k)
+    .sort((a,b)=>(a.due||"9999").localeCompare(b.due||"9999"));
+  const readDates = [...new Set(readLog.map(r=>r.readOn||""))];
+  const sow       = startOfWeekYmd();
+  const thisWeek  = readLog.filter(r=>r.readOn&&r.readOn>=sow).length;
+  const overdue   = byBucket("overdue").length;
+
+  return (
+    <div className="reports-view">
+      <div className="eyebrow">Annual Reports</div>
+      <h1 className="pg-title">Report <em>Reading</em></h1>
+      <p style={{fontSize:13,color:"#aaa",fontWeight:300,marginTop:6,marginBottom:6}}>
+        Log the annual report you read each day, and queue what to read next — today, this week, or this month.
+      </p>
+      {(readLog.length>0||planned.length>0)&&(
+        <p style={{fontSize:12,color:overdue?"#c05050":"#5a9a60",marginBottom:18}}>
+          {readLog.length} read · {thisWeek} this week · {planned.length} planned{overdue?` · ${overdue} overdue`:""}
+        </p>
+      )}
+
+      <div className="rp-add">
+        <input className="rp-add-inp" value={draft} placeholder="Company — e.g. Apple (AAPL)"
+          onChange={e=>setDraft(e.target.value)}
+          onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();add("read");}}}/>
+        <button className="rp-btn solid" onClick={()=>add("read")} title="Log it as read today">✓ Read today</button>
+        <button className="rp-btn" onClick={()=>add("planned")} title="Queue it to read later">+ Plan</button>
+      </div>
+
+      <div className="rp-sec-hd">Reading Plan</div>
+      {planned.length===0&&<div className="rv-no-notes" style={{marginTop:8}}>Nothing queued. Type a company above and hit "+ Plan".</div>}
+      {RPT_BUCKETS.map(b=>{
+        const list=byBucket(b.key);
+        if(!list.length) return null;
+        return (
+          <div key={b.key}>
+            <div className={`rp-bucket${b.key==="overdue"?" over":""}`}>{b.label}</div>
+            {list.map(r=>(
+              <div key={r.id} className="rp-card">
+                <div className="ck" onClick={()=>upd(r.id,{status:"read",readOn:todayKey()})} title="Mark as read today"/>
+                <div className="rp-card-main">
+                  <input className="rp-co-inp" value={r.company} placeholder="Company…"
+                    onChange={e=>upd(r.id,{company:e.target.value})}/>
+                  <div className="rp-meta">
+                    <button className={`rp-chip${r.due===todayKey()?" on":""}`} onClick={()=>upd(r.id,{due:todayKey()})}>Today</button>
+                    <button className={`rp-chip${r.due===endOfWeekYmd()?" on":""}`} onClick={()=>upd(r.id,{due:endOfWeekYmd()})}>This wk</button>
+                    <button className={`rp-chip${r.due===endOfMonthYmd()?" on":""}`} onClick={()=>upd(r.id,{due:endOfMonthYmd()})}>This mo</button>
+                    <input className="rp-date" type="date" value={r.due||""} title="Target date"
+                      onChange={e=>upd(r.id,{due:e.target.value})}/>
+                  </div>
+                </div>
+                <button className="goal-btn del" onClick={()=>del(r.id)}>×</button>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+
+      <div className="rp-sec-hd" style={{marginTop:30}}>Read Log</div>
+      {readLog.length===0&&<div className="rv-no-notes" style={{marginTop:8}}>No reports logged yet. Type a company above and hit "✓ Read today".</div>}
+      {readDates.map(d=>(
+        <div key={d||"undated"}>
+          <div className="rp-bucket">{d?fmtDate(d,{weekday:"short",month:"long",day:"numeric",year:"numeric"}):"Undated"}</div>
+          {readLog.filter(r=>(r.readOn||"")===d).map(r=>(
+            <div key={r.id} className="rp-card read">
+              <div className="ck done" onClick={()=>upd(r.id,{status:"planned",readOn:""})} title="Not read after all — move back to the plan">✓</div>
+              <div className="rp-card-main">
+                <input className="rp-co-inp" value={r.company} placeholder="Company…"
+                  onChange={e=>upd(r.id,{company:e.target.value})}/>
+                <div className="rp-meta">
+                  <input className="rp-detail-inp" value={r.detail||""} placeholder="Notes — e.g. FY2024 10-K, key takeaway…"
+                    onChange={e=>upd(r.id,{detail:e.target.value})}/>
+                  <input className="rp-date" type="date" value={r.readOn||""} title="Date read"
+                    onChange={e=>upd(r.id,{readOn:e.target.value})}/>
+                </div>
+              </div>
+              <button className="goal-btn del" onClick={()=>del(r.id)}>×</button>
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 });
@@ -2128,6 +2302,7 @@ const NAVS = [
   {key:"goals",  icon:"◈",  label:"Goals"},
   {key:"ideas",  icon:"✧",  label:"Ideas"},
   {key:"reading",icon:"❧",  label:"Books"},
+  {key:"reports",icon:"▤",  label:"Reports"},
   {key:"month",  icon:"◫",  label:"Month"},
   {key:"search", icon:"⌕",  label:"Search"},
   {key:"habits", icon:"◐",  label:"Habits"},
@@ -2149,6 +2324,7 @@ export default function App() {
   const [ideasTick,     setIdeasTick]   = useState(0);
   const [readingTick,   setReadingTick] = useState(0);
   const [goalsTick,     setGoalsTick]   = useState(0);
+  const [reportsTick,   setReportsTick] = useState(0);
   const [driveStatus,   setDS]          = useState("");
   const [driveLoading,  setDL]          = useState(false);
   const [lastSync,      setLastSync]    = useState("");
@@ -2190,8 +2366,14 @@ export default function App() {
         const driveGoals=Array.isArray(driveData.goals)?driveData.goals:[];
         if(driveGoals.length){
           const local=loadGoals();
-          const mergedG=mergeGoals(local,driveGoals);
+          const mergedG=mergeByNewer(local,driveGoals);
           if(stableStr(mergedG)!==stableStr(local)){saveGoals(mergedG);setGoalsTick(t=>t+1);}
+        }
+        const driveReports=Array.isArray(driveData.reports)?driveData.reports:[];
+        if(driveReports.length){
+          const local=loadReports();
+          const mergedR=mergeByNewer(local,driveReports);
+          if(stableStr(mergedR)!==stableStr(local)){saveReports(mergedR);setReportsTick(t=>t+1);}
         }
         if(count>0){
           setEntries(allEntries());
@@ -2281,8 +2463,14 @@ export default function App() {
       const driveGoals=Array.isArray(driveData.goals)?driveData.goals:[];
       if(driveGoals.length){
         const local=loadGoals();
-        const mergedG=mergeGoals(local,driveGoals);
+        const mergedG=mergeByNewer(local,driveGoals);
         if(stableStr(mergedG)!==stableStr(local)){saveGoals(mergedG);setGoalsTick(t=>t+1);}
+      }
+      const driveReports=Array.isArray(driveData.reports)?driveData.reports:[];
+      if(driveReports.length){
+        const local=loadReports();
+        const mergedR=mergeByNewer(local,driveReports);
+        if(stableStr(mergedR)!==stableStr(local)){saveReports(mergedR);setReportsTick(t=>t+1);}
       }
       lastPullRef.current=Date.now();
       setEntries(allEntries());
@@ -2306,6 +2494,7 @@ export default function App() {
     if(newTab==="ideas") setIdeasTick(t=>t+1);
     if(newTab==="reading") setReadingTick(t=>t+1);
     if(newTab==="goals") setGoalsTick(t=>t+1);
+    if(newTab==="reports") setReportsTick(t=>t+1);
     setTab(newTab);
   },[tab,selDate,doPullFromDrive]);
 
@@ -2350,8 +2539,14 @@ export default function App() {
       const driveGoals=Array.isArray(driveData.goals)?driveData.goals:[];
       if(driveGoals.length){
         const local=loadGoals();
-        const mergedG=mergeGoals(local,driveGoals);
+        const mergedG=mergeByNewer(local,driveGoals);
         if(stableStr(mergedG)!==stableStr(local)){saveGoals(mergedG);setGoalsTick(t=>t+1);}
+      }
+      const driveReports=Array.isArray(driveData.reports)?driveData.reports:[];
+      if(driveReports.length){
+        const local=loadReports();
+        const mergedR=mergeByNewer(local,driveReports);
+        if(stableStr(mergedR)!==stableStr(local)){saveReports(mergedR);setReportsTick(t=>t+1);}
       }
       setEntries(allEntries());
       setEntry(load(selDate));
@@ -2457,6 +2652,9 @@ export default function App() {
             <ReadingView refreshKey={readingTick} today={today}
               onSelectDay={date=>{selectDay(date);switchTab("write");}}
               onEntriesChanged={()=>{setEntries(allEntries());setEntry(load(selDate));}}/>
+          </div>
+          <div style={{display:tab==="reports"?"block":"none"}}>
+            <ReportsView refreshKey={reportsTick}/>
           </div>
           <div style={{display:tab==="month"?"block":"none"}}>
             <MonthView calMonth={calMonth} setCalMonth={setCalMonth} entrySet={entrySet} selectedDate={selDate} today={today} streak={streak} totalDays={totalDays} onSelect={selectDay}/>
