@@ -116,8 +116,8 @@ const saveHabits  = h => localStorage.setItem(HABITS_KEY, JSON.stringify(h));
 
 // ─── Goals helpers ────────────────────────────────────────────────────────────
 const GOALS_KEY  = "myjournal_goals";
-const blankGoal  = () => ({ id:uid(), title:"", why:"", target:"", week:"", timing:"date", done:false, createdAt:nowTs(), updatedAt:nowTs(), steps:[] });
-const blankStep  = () => ({ id:uid(), title:"", target:"", week:"", timing:"date", done:false });
+const blankGoal  = () => ({ id:uid(), title:"", why:"", target:"", week:"", month:"", timing:"date", done:false, doneP:{}, createdAt:nowTs(), updatedAt:nowTs(), steps:[] });
+const blankStep  = () => ({ id:uid(), title:"", target:"", week:"", month:"", timing:"date", done:false, doneP:{} });
 const loadGoals  = () => { try{const r=localStorage.getItem(GOALS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
 const saveGoals  = g => localStorage.setItem(GOALS_KEY, JSON.stringify(g));
 
@@ -199,36 +199,113 @@ const weekOptions = () => {
   return out;
 };
 
+// ─── Months ───────────────────────────────────────────────────────────────────
+const MONTH_RE      = /^\d{4}-\d{2}$/;
+const thisMonthKey  = () => todayKey().slice(0,7);
+const monthLabel    = (k,opts) => { const [y,m]=k.split("-").map(Number);
+  return new Date(y,m-1,1).toLocaleDateString("en-US",opts||{month:"long",year:"numeric"}); };
+const endOfMonthKey = k => { const [y,m]=k.split("-").map(Number); return dateKey(new Date(y,m,0)); };
+const daysUntilMonthEnd = k => MONTH_RE.test(k||"") ? daysUntil(endOfMonthKey(k)) : null;
+
 // ─── Goal / step scheduling ───────────────────────────────────────────────────
-// A goal or step is timed one of three ways: a target date, a week of the year,
-// or ongoing — something you keep at with no deadline at all.
-const GOAL_TIMINGS = [["date","Date"],["week","Week"],["ongoing","Ongoing"]];
-const timingOf = g => GOAL_TIMINGS.some(([k])=>k===g?.timing) ? g.timing : "date";
+// Timing splits two ways. Specific: a date, a particular week, or a particular
+// month. Recurring: every week or every month, which come back around rather
+// than being finished once. Plus ongoing — kept at with no deadline at all.
+const GOAL_TIMINGS = [
+  ["date","Date"], ["week","Week"], ["month","Month"],
+  ["weekly","Every week"], ["monthly","Every month"], ["ongoing","Ongoing"],
+];
+const timingOf    = g => GOAL_TIMINGS.some(([k])=>k===g?.timing) ? g.timing : "date";
+const isRecurring = t => t==="weekly" || t==="monthly";
+// The period a recurring item is currently working on.
+const periodKeyOf = t => t==="weekly" ? thisWeekKey() : t==="monthly" ? thisMonthKey() : "";
+
+// Recurring items are ticked per period, so last week's tick doesn't mark this
+// week done. Everything else keeps a single done flag.
+const periodDone = item => {
+  const t=timingOf(item);
+  return isRecurring(t) ? !!(item?.doneP||{})[periodKeyOf(t)] : !!item?.done;
+};
+const togglePatch = item => {
+  const t=timingOf(item);
+  if(!isRecurring(t)) return { done:!item?.done };
+  const k=periodKeyOf(t), dp={...(item?.doneP||{})};
+  if(dp[k]) delete dp[k]; else dp[k]=true;
+  return { doneP:dp };
+};
+// The last n periods, oldest first — for the little completion strip.
+const recentPeriods = (t,n=6) => {
+  const out=[], now=new Date();
+  for(let i=n-1;i>=0;i--){
+    if(t==="weekly"){
+      const x=new Date(now); x.setDate(x.getDate()-i*7);
+      const {year,week}=isoWeekOf(x);
+      out.push({ key:weekKey(year,week), label:`W${week}` });
+    } else {
+      const x=new Date(now.getFullYear(),now.getMonth()-i,1);
+      out.push({ key:`${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,"0")}`,
+                 label:x.toLocaleDateString("en-US",{month:"short"}) });
+    }
+  }
+  return out;
+};
 
 const schedOf = item => {
   const t = timingOf(item);
-  if(t==="ongoing") return { timing:t, days:null, label:"ongoing", cls:"ongoing" };
+  if(t==="ongoing") return { timing:t, days:null, label:"ongoing", cls:"ongoing", recurring:false };
+  if(t==="weekly"){
+    const d=daysUntilWeekEnd(thisWeekKey());
+    return { timing:t, days:d, cls:"recur", recurring:true, label:`every week · ${fmtCountdown(d)}` };
+  }
+  if(t==="monthly"){
+    const d=daysUntilMonthEnd(thisMonthKey());
+    return { timing:t, days:d, cls:"recur", recurring:true, label:`every month · ${fmtCountdown(d)}` };
+  }
   if(t==="week"){
     const k=item?.week||"", p=parseWeekKey(k), d=daysUntilWeekEnd(k);
-    return { timing:t, days:d, week:k, cls:d===null?"none":cdClass(d),
+    return { timing:t, days:d, week:k, recurring:false, cls:d===null?"none":cdClass(d),
              label: p ? `W${p.week} · ${fmtCountdown(d)}` : "no week" };
   }
+  if(t==="month"){
+    const k=item?.month||"", d=daysUntilMonthEnd(k);
+    return { timing:t, days:d, month:k, recurring:false, cls:d===null?"none":cdClass(d),
+             label: MONTH_RE.test(k) ? `${monthLabel(k,{month:"short",year:"numeric"})} · ${fmtCountdown(d)}` : "no month" };
+  }
   const d=daysUntil(item?.target);
-  return { timing:t, days:d, label:fmtCountdown(d), cls:cdClass(d) };
+  return { timing:t, days:d, recurring:false, label:fmtCountdown(d), cls:cdClass(d) };
 };
-const isOverdue = item => { const s=schedOf(item); return s.timing!=="ongoing" && s.days!==null && s.days<0; };
+// A recurring item is never overdue — its period simply rolls over.
+const isOverdue = item => { const s=schedOf(item); return !s.recurring && s.timing!=="ongoing" && s.days!==null && s.days<0; };
 // Sort key: soonest first, then ongoing, then anything with no schedule at all.
 const schedRank = item => { const s=schedOf(item); return s.timing==="ongoing" ? 1e9 : s.days===null ? 1e9+1 : s.days; };
+// A goal is only permanently closed if it isn't recurring — recurring ones come back.
+const goalClosed = g => !isRecurring(timingOf(g)) && !!g?.done;
+
 // Which week an item belongs to — a dated item still lands in its calendar week.
+// Month-scoped and recurring items have no single week; they group elsewhere.
 const effWeekKey = item => {
   const t=timingOf(item);
-  if(t==="ongoing") return "";
-  if(t==="week")    return item?.week||"";
+  if(t==="ongoing"||isRecurring(t)||t==="month") return "";
+  if(t==="week") return item?.week||"";
   const d=item?.target;
   if(!d || !DATE_RE.test(d)) return "";
   const [y,m,day]=d.split("-").map(Number);
   const {year,week}=isoWeekOf(new Date(y,m-1,day));
   return weekKey(year,week);
+};
+// Which month an item rolls up to. A week belongs to the month holding its
+// Thursday — the same rule ISO uses to decide a week's year.
+const effMonthKey = item => {
+  const t=timingOf(item);
+  if(t==="ongoing"||isRecurring(t)) return "";
+  if(t==="month") return MONTH_RE.test(item?.month||"") ? item.month : "";
+  if(t==="week"){
+    const p=parseWeekKey(item?.week); if(!p) return "";
+    const th=isoWeekStart(p.year,p.week); th.setDate(th.getDate()+3);
+    return `${th.getFullYear()}-${String(th.getMonth()+1).padStart(2,"0")}`;
+  }
+  const d=item?.target;
+  return (d && DATE_RE.test(d)) ? d.slice(0,7) : "";
 };
 
 // ─── Ideas helpers ────────────────────────────────────────────────────────────
@@ -748,6 +825,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .step-tim{border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#8fa8bf;cursor:pointer;}
 .step-week{border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#8fa8bf;cursor:pointer;max-width:120px;}
 .step-cd.ongoing{color:#4f8f68;}
+
+/* ── recurring period strip ── */
+.pstrip{display:flex;gap:4px;margin-top:9px;flex-wrap:wrap;}
+.pdot{width:34px;height:30px;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:10px;cursor:pointer;background:#f0f4f8;color:#c3cfdb;transition:all .15s;}
+.pdot.on{background:#5a7fa8;color:white;}
+.pdot.now{box-shadow:0 0 0 1.5px #5a7fa8;}
+.pdot:hover{filter:brightness(.96);}
+.pdot-lbl{font-size:8px;font-weight:500;letter-spacing:.2px;opacity:.75;}
+.goal-cd.recur{background:#eef0fb;color:#6b6fc0;}
+.step-cd.recur{color:#6b6fc0;font-weight:600;}
+.gt-badge.recur{background:#eef0fb;color:#6b6fc0;}
+.gw-recur{background:#f7f9fd;border-radius:10px;padding:12px 13px 4px;border:1.5px solid #e4ebf4;}
+.tim-sel{max-width:126px;}
 
 /* ── goal tree (drag & drop) ── */
 .gt-hint{font-size:11px;color:#b8c6d4;margin-bottom:12px;}
@@ -1500,19 +1590,33 @@ const IdeasView = memo(({ refreshKey }) => {
 });
 
 // ─── GoalsView (big goals, each broken into smaller steps, on a timeline) ─────
-// Date / Week / Ongoing switch plus whichever input that mode needs.
+// Timing mode plus whichever input that mode needs. Six modes is past what a
+// segmented control can carry, so it's a grouped select.
+const TimingSelect = ({ cls, value, onChange }) => (
+  <select className={cls} value={value} title="How this is timed" onChange={onChange}>
+    <optgroup label="Specific">
+      {GOAL_TIMINGS.slice(0,3).map(([k,l])=><option key={k} value={k}>{l}</option>)}
+    </optgroup>
+    <optgroup label="Recurring">
+      {GOAL_TIMINGS.slice(3,5).map(([k,l])=><option key={k} value={k}>{l}</option>)}
+    </optgroup>
+    <optgroup label="No deadline">
+      <option value="ongoing">Ongoing</option>
+    </optgroup>
+  </select>
+);
+
 const TimingPicker = memo(({ item, onSet, compact }) => {
   const t = timingOf(item);
+  const set = f => e => onSet(f, e.target.value);
   if(compact) return (
     <>
-      <select className="step-tim" value={t} title="How this is timed"
-        onChange={e=>onSet("timing",e.target.value)}>
-        {GOAL_TIMINGS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
-      </select>
-      {t==="date"&&<input className={`step-date${item.target?" set":""}`} type="date" value={item.target||""}
-        title="Target date" onChange={e=>onSet("target",e.target.value)}/>}
-      {t==="week"&&<select className="step-week" value={item.week||""} title="Target week"
-        onChange={e=>onSet("week",e.target.value)}>
+      <TimingSelect cls="step-tim" value={t} onChange={set("timing")}/>
+      {t==="date" &&<input className={`step-date${item.target?" set":""}`} type="date" value={item.target||""}
+        title="Target date" onChange={set("target")}/>}
+      {t==="month"&&<input className="step-week" type="month" value={item.month||""}
+        title="Target month" onChange={set("month")}/>}
+      {t==="week" &&<select className="step-week" value={item.week||""} title="Target week" onChange={set("week")}>
         <option value="">Week…</option>
         {weekOptions().map(o=><option key={o.key} value={o.key}>{o.label}</option>)}
       </select>}
@@ -1520,19 +1624,33 @@ const TimingPicker = memo(({ item, onSet, compact }) => {
   );
   return (
     <>
-      <div className="tim-seg">
-        {GOAL_TIMINGS.map(([k,l])=>(
-          <button key={k} className={`tim-btn${t===k?" on":""}`} onClick={()=>onSet("timing",k)}>{l}</button>
-        ))}
-      </div>
-      {t==="date"&&<input className="goal-date" type="date" value={item.target||""}
-        onChange={e=>onSet("target",e.target.value)}/>}
-      {t==="week"&&<select className="goal-week" value={item.week||""}
-        onChange={e=>onSet("week",e.target.value)}>
+      <TimingSelect cls="goal-week tim-sel" value={t} onChange={set("timing")}/>
+      {t==="date" &&<input className="goal-date" type="date" value={item.target||""} onChange={set("target")}/>}
+      {t==="month"&&<input className="goal-date" type="month" value={item.month||""} onChange={set("month")}/>}
+      {t==="week" &&<select className="goal-week" value={item.week||""} onChange={set("week")}>
         <option value="">Pick a week…</option>
         {weekOptions().map(o=><option key={o.key} value={o.key}>{o.label}</option>)}
       </select>}
     </>
+  );
+});
+
+// Completion over the last few periods, for recurring goals only.
+const PeriodStrip = memo(({ item, onToggleKey }) => {
+  const t = timingOf(item);
+  if(!isRecurring(t)) return null;
+  const now = periodKeyOf(t);
+  return (
+    <div className="pstrip">
+      {recentPeriods(t).map(p=>(
+        <div key={p.key} className={`pdot${(item.doneP||{})[p.key]?" on":""}${p.key===now?" now":""}`}
+          title={`${p.label}${(item.doneP||{})[p.key]?" — done":""}`}
+          onClick={()=>onToggleKey&&onToggleKey(p.key)}>
+          <span>{(item.doneP||{})[p.key]?"✓":""}</span>
+          <span className="pdot-lbl">{p.label}</span>
+        </div>
+      ))}
+    </div>
   );
 });
 
@@ -1541,19 +1659,21 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
   const set   = (f,v)=>onChange({...goal,[f]:v});
   const steps = goal.steps||[];
   const real  = steps.filter(s=>s.title?.trim());
-  const done  = real.filter(s=>s.done).length;
-  const pct   = real.length ? Math.round(done/real.length*100) : (goal.done?100:0);
+  const done  = real.filter(periodDone).length;
   const sched = schedOf(goal);
+  const gDone = periodDone(goal);
+  const pct   = real.length ? Math.round(done/real.length*100) : (gDone?100:0);
 
   const setStep = (id,f,v)=>set("steps",steps.map(s=>s.id===id?{...s,[f]:v}:s));
   const addStep = ()=>set("steps",[...steps,blankStep()]);
   const delStep = id=>set("steps",steps.filter(s=>s.id!==id));
 
   return (
-    <div className={`goal-card${goal.done?" is-done":""}`}>
+    <div className={`goal-card${gDone&&!sched.recurring?" is-done":""}`}>
       <div className="goal-top">
         <button className="goal-caret" onClick={onToggle} title={collapsed?"Expand":"Collapse"}>{collapsed?"▶":"▼"}</button>
-        <div className={`ck${goal.done?" done":""}`} onClick={()=>set("done",!goal.done)} title="Mark goal achieved">{goal.done&&"✓"}</div>
+        <div className={`ck${gDone?" done":""}`} onClick={()=>onChange({...goal,...togglePatch(goal)})}
+          title={sched.recurring?"Mark done for this period":"Mark goal achieved"}>{gDone&&"✓"}</div>
         <input className="goal-title-inp" value={goal.title} placeholder="A big goal…"
           onChange={e=>set("title",e.target.value)}/>
         <div className="goal-actions">
@@ -1571,6 +1691,10 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
           <span className="goal-prog-lbl">{done}/{real.length}</span>
         </>}
       </div>
+      <PeriodStrip item={goal} onToggleKey={k=>{
+        const dp={...(goal.doneP||{})}; if(dp[k]) delete dp[k]; else dp[k]=true;
+        onChange({...goal,doneP:dp});
+      }}/>
 
       {!collapsed&&(
         <div className="goal-body">
@@ -1582,13 +1706,15 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
             const ss=schedOf(s);
             return (
               <div key={s.id} className="step-row">
-                <div className={`ck${s.done?" done":""}`} onClick={()=>setStep(s.id,"done",!s.done)}>{s.done&&"✓"}</div>
-                <input className={`step-inp${s.done?" struck":""}`} value={s.title} placeholder="A step toward it…"
+                <div className={`ck${periodDone(s)?" done":""}`}
+                  onClick={()=>{const pt=togglePatch(s);Object.entries(pt).forEach(([f,v])=>setStep(s.id,f,v));}}>{periodDone(s)&&"✓"}</div>
+                <input className={`step-inp${periodDone(s)&&!ss.recurring?" struck":""}`} value={s.title} placeholder="A step toward it…"
                   onChange={e=>setStep(s.id,"title",e.target.value)}
                   onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addStep();}}}/>
                 <div className="step-sched">
-                  {!s.done&&ss.days!==null&&<span className={`step-cd${ss.days<0?" over":""}`}>{fmtCountdown(ss.days)}</span>}
-                  {!s.done&&ss.timing==="ongoing"&&<span className="step-cd ongoing">ongoing</span>}
+                  {ss.recurring&&<span className="step-cd recur">{ss.timing==="weekly"?"wkly":"mthly"}</span>}
+                  {!periodDone(s)&&!ss.recurring&&ss.days!==null&&<span className={`step-cd${ss.days<0?" over":""}`}>{fmtCountdown(ss.days)}</span>}
+                  {ss.timing==="ongoing"&&<span className="step-cd ongoing">ongoing</span>}
                   <TimingPicker item={s} compact onSet={(f,v)=>setStep(s.id,f,v)}/>
                 </div>
                 <button className="goal-btn del" onClick={()=>delStep(s.id)}>×</button>
@@ -1680,8 +1806,8 @@ const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
             <div ref={el=>reg(g.id,"goal",el)}
               className={`gt-row gt-root${drag?.id===g.id?" gt-dragging":""}${dropCls(g.id)}`}>
               {grip("goal",g.id)}
-              <div className={`ck${g.done?" done":""}`} onClick={()=>onEdit(g.id,{done:!g.done})}>{g.done&&"✓"}</div>
-              <input className={`gt-title${g.done?" struck":""}`} value={g.title} placeholder="A big goal…"
+              <div className={`ck${periodDone(g)?" done":""}`} onClick={()=>onEdit(g.id,togglePatch(g))}>{periodDone(g)&&"✓"}</div>
+              <input className={`gt-title${goalClosed(g)?" struck":""}`} value={g.title} placeholder="A big goal…"
                 onChange={e=>onEdit(g.id,{title:e.target.value})}/>
               <span className={`gt-badge${gs.cls?" "+gs.cls:""}`}>{gs.label}</span>
               <button className="goal-btn del" onClick={()=>onDelete(g.id)}>×</button>
@@ -1695,9 +1821,9 @@ const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
                       <div ref={el=>reg(s.id,"step",el)}
                         className={`gt-row gt-child${drag?.id===s.id?" gt-dragging":""}${dropCls(s.id)}`}>
                         {grip("step",s.id)}
-                        <div className={`ck${s.done?" done":""}`}
-                          onClick={()=>onEdit(g.id,{steps:steps.map(x=>x.id===s.id?{...x,done:!x.done}:x)})}>{s.done&&"✓"}</div>
-                        <input className={`gt-title${s.done?" struck":""}`} value={s.title} placeholder="A smaller goal…"
+                        <div className={`ck${periodDone(s)?" done":""}`}
+                          onClick={()=>onEdit(g.id,{steps:steps.map(x=>x.id===s.id?{...x,...togglePatch(x)}:x)})}>{periodDone(s)&&"✓"}</div>
+                        <input className={`gt-title${periodDone(s)&&!ss.recurring?" struck":""}`} value={s.title} placeholder="A smaller goal…"
                           onChange={e=>onEdit(g.id,{steps:steps.map(x=>x.id===s.id?{...x,title:e.target.value}:x)})}/>
                         <span className={`gt-badge${ss.cls?" "+ss.cls:""}`}>{ss.label}</span>
                         <button className="goal-btn del"
@@ -1715,89 +1841,114 @@ const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
   );
 });
 
-// ─── GoalWeeks (the year broken into week numbers) ────────────────────────────
-const GoalWeeks = memo(({ goals, onEdit }) => {
-  const { weeks, ongoing, undated } = useMemo(()=>{
-    const map=new Map(), ongoing=[], undated=[];
-    const push=(k,it)=>{ if(!map.has(k)) map.set(k,[]); map.get(k).push(it); };
-    goals.forEach(g=>{
-      const ge={kind:"goal",goal:g,item:g};
-      const gt=timingOf(g), gk=effWeekKey(g);
-      if(gt==="ongoing") ongoing.push(ge);
-      else if(gk)        push(gk,ge);
-      else               undated.push(ge);
-      // Steps only appear here once they carry their own week or date —
-      // otherwise they simply live under their parent.
-      (g.steps||[]).filter(s=>s.title?.trim()).forEach(s=>{
-        const se={kind:"step",goal:g,item:s};
-        const st=timingOf(s), sk=effWeekKey(s);
-        if(st==="ongoing") ongoing.push(se);
-        else if(sk)        push(sk,se);
-      });
-    });
-    return { weeks:[...map.entries()].sort((a,b)=>a[0].localeCompare(b[0])), ongoing, undated };
-  },[goals]);
+// ─── GoalPeriods (the year broken into weeks or months) ───────────────────────
+// Recurring goals are pinned at the top rather than repeated into every period,
+// which would bury the one-off goals. Everything else groups by the period it
+// falls in — a dated goal still lands in its calendar week and month.
+const GoalPeriods = memo(({ goals, unit, onEdit }) => {
+  const isWeek = unit==="week";
+  const keyOf  = isWeek ? effWeekKey : effMonthKey;
+  const recKind = isWeek ? "weekly" : "monthly";
 
-  const now=thisWeekKey(), cy=isoWeekOf(new Date()).year;
-  const toggle=(e)=>{
-    if(e.kind==="goal") onEdit(e.goal.id,{done:!e.item.done});
-    else onEdit(e.goal.id,{steps:(e.goal.steps||[]).map(x=>x.id===e.item.id?{...x,done:!x.done}:x)});
+  const { periods, recurring, other, undated } = useMemo(()=>{
+    const map=new Map(), recurring=[], other=[], undated=[];
+    const push=(k,it)=>{ if(!map.has(k)) map.set(k,[]); map.get(k).push(it); };
+    const place=(entry)=>{
+      const t=timingOf(entry.item);
+      if(t===recKind)            recurring.push(entry);
+      else if(isRecurring(t)||t==="ongoing") other.push(entry);
+      else {
+        const k=keyOf(entry.item);
+        if(k) push(k,entry); else if(entry.kind==="goal") undated.push(entry);
+      }
+    };
+    goals.forEach(g=>{
+      place({kind:"goal",goal:g,item:g});
+      // A smaller goal shows here once it carries its own schedule; otherwise
+      // it simply lives under its parent in the list and tree views.
+      (g.steps||[]).filter(x=>x.title?.trim()).forEach(x=>place({kind:"step",goal:g,item:x}));
+    });
+    return { periods:[...map.entries()].sort((a,b)=>a[0].localeCompare(b[0])), recurring, other, undated };
+  },[goals,unit]);
+
+  const now = isWeek ? thisWeekKey() : thisMonthKey();
+  const cy  = isoWeekOf(new Date()).year;
+  const hdr = k => {
+    if(!isWeek) return { num:monthLabel(k,{month:"long"}), range:monthLabel(k,{year:"numeric"}) };
+    const p=parseWeekKey(k);
+    return { num:`${p.year!==cy?p.year+" ":""}W${p.week}`, range:weekRangeLabel(k) };
   };
-  const row=(e,i)=>(
+
+  const toggle = e => {
+    if(e.kind==="goal") onEdit(e.goal.id, togglePatch(e.item));
+    else onEdit(e.goal.id,{steps:(e.goal.steps||[]).map(x=>x.id===e.item.id?{...x,...togglePatch(x)}:x)});
+  };
+  const row = (e,i) => (
     <div key={`${e.kind}-${e.item.id}-${i}`} className={`gw-item${e.kind==="step"?" sub":""}`}>
-      <div className={`ck${e.item.done?" done":""}`} onClick={()=>toggle(e)}>{e.item.done&&"✓"}</div>
-      <span className={`gw-txt${e.item.done?" struck":""}`}>{e.item.title||<em style={{color:"#ccc"}}>Untitled</em>}</span>
+      <div className={`ck${periodDone(e.item)?" done":""}`} onClick={()=>toggle(e)}>{periodDone(e.item)&&"✓"}</div>
+      <span className={`gw-txt${periodDone(e.item)?" struck":""}`}>
+        {e.item.title||<em style={{color:"#ccc"}}>Untitled</em>}
+      </span>
       {e.kind==="step"&&<span className="gw-parent">↳ {e.goal.title||"Untitled goal"}</span>}
     </div>
   );
 
-  const hasAny = weeks.length||ongoing.length||undated.length;
-  if(!hasAny) return <div className="empty" style={{marginTop:16}}>Nothing scheduled yet. Give a goal a week or a date.</div>;
+  if(!periods.length&&!recurring.length&&!other.length&&!undated.length)
+    return <div className="empty" style={{marginTop:16}}>Nothing scheduled yet. Give a goal a {unit}, a date, or a recurring cadence.</div>;
+
+  const group = (title, sub, items, cls) => items.length>0&&(
+    <div className="gw-week">
+      <div className="gw-hd">
+        <span className={`gw-num${cls||""}`}>{title}</span>
+        <span className="gw-range">{sub}</span>
+        <span className="gw-count">{items.length}</span>
+      </div>
+      {items.map(row)}
+    </div>
+  );
 
   return (
     <div>
-      {!weeks.some(([k])=>k===now)&&(
-        <div className="gw-week">
+      {recurring.length>0&&(
+        <div className="gw-week gw-recur">
           <div className="gw-hd">
-            <span className="gw-num now">W{parseWeekKey(now).week}</span>
-            <span className="gw-range">{weekRangeLabel(now)} · this week</span>
+            <span className="gw-num now">Every {unit}</span>
+            <span className="gw-range">
+              {isWeek?`this week · ${weekRangeLabel(now)}`:`this month · ${monthLabel(now)}`}
+            </span>
+            <span className="gw-count">{recurring.filter(e=>periodDone(e.item)).length}/{recurring.length} done</span>
           </div>
-          <div className="rv-no-notes">Nothing scheduled this week.</div>
+          {recurring.map(row)}
         </div>
       )}
-      {weeks.map(([k,items])=>{
-        const p=parseWeekKey(k);
+
+      {!periods.some(([k])=>k===now)&&(
+        <div className="gw-week">
+          <div className="gw-hd">
+            <span className="gw-num now">{hdr(now).num}</span>
+            <span className="gw-range">{hdr(now).range} · this {unit}</span>
+          </div>
+          <div className="rv-no-notes">Nothing scheduled this {unit}.</div>
+        </div>
+      )}
+
+      {periods.map(([k,items])=>{
+        const h=hdr(k);
         return (
           <div key={k} className="gw-week">
             <div className="gw-hd">
-              <span className={`gw-num${k===now?" now":""}`}>{p.year!==cy?`${p.year} `:""}W{p.week}</span>
-              <span className="gw-range">{weekRangeLabel(k)}{k===now?" · this week":""}</span>
+              <span className={`gw-num${k===now?" now":""}`}>{h.num}</span>
+              <span className="gw-range">{h.range}{k===now?` · this ${unit}`:""}</span>
               <span className="gw-count">{items.length} item{items.length!==1?"s":""}</span>
             </div>
             {items.map(row)}
           </div>
         );
       })}
-      {ongoing.length>0&&(
-        <div className="gw-week">
-          <div className="gw-hd">
-            <span className="gw-num">Ongoing</span>
-            <span className="gw-range">no deadline — kept at continuously</span>
-            <span className="gw-count">{ongoing.length}</span>
-          </div>
-          {ongoing.map(row)}
-        </div>
-      )}
-      {undated.length>0&&(
-        <div className="gw-week">
-          <div className="gw-hd">
-            <span className="gw-num">Unscheduled</span>
-            <span className="gw-range">no week or date yet</span>
-            <span className="gw-count">{undated.length}</span>
-          </div>
-          {undated.map(row)}
-        </div>
-      )}
+
+      {group(isWeek?"Every month":"Every week", "recurring on the other cadence", other.filter(e=>isRecurring(timingOf(e.item))))}
+      {group("Ongoing", "no deadline — kept at continuously", other.filter(e=>timingOf(e.item)==="ongoing"))}
+      {group("Unscheduled", `no ${unit} or date yet`, undated)}
     </div>
   );
 });
@@ -1879,12 +2030,13 @@ const GoalsView = memo(({ refreshKey }) => {
 
   // Achieved goals sink to the bottom either way; ongoing and unscheduled last.
   const sorted = useMemo(()=>
-    [...goals].sort((a,b)=>(a.done?1:0)-(b.done?1:0)||(sort==="deadline"?schedRank(a)-schedRank(b):0))
+    [...goals].sort((a,b)=>(goalClosed(a)?1:0)-(goalClosed(b)?1:0)||(sort==="deadline"?schedRank(a)-schedRank(b):0))
   ,[goals,sort]);
 
-  const open      = goals.filter(g=>!g.done).length;
-  const overdue   = goals.filter(g=>!g.done&&isOverdue(g)).length;
-  const ongoingN  = goals.filter(g=>!g.done&&timingOf(g)==="ongoing").length;
+  const open      = goals.filter(g=>!goalClosed(g)).length;
+  const overdue   = goals.filter(g=>!goalClosed(g)&&isOverdue(g)).length;
+  const recurN    = goals.filter(g=>isRecurring(timingOf(g))).length;
+  const ongoingN  = goals.filter(g=>!goalClosed(g)&&timingOf(g)==="ongoing").length;
   const manual    = sort==="mine";
 
   return (
@@ -1897,7 +2049,7 @@ const GoalsView = memo(({ refreshKey }) => {
       {goals.length>0&&(
         <p style={{fontSize:12,color:overdue?"#c05050":"#5a7fa8",marginBottom:18}}>
           {open} open · {goals.length-open} achieved
-          {ongoingN?` · ${ongoingN} ongoing`:""}{overdue?` · ${overdue} past due`:""}
+          {recurN?` · ${recurN} recurring`:""}{ongoingN?` · ${ongoingN} ongoing`:""}{overdue?` · ${overdue} past due`:""}
         </p>
       )}
 
@@ -1907,6 +2059,7 @@ const GoalsView = memo(({ refreshKey }) => {
         <button className={`gv-sort-btn${view==="list"?" active":""}`}  onClick={()=>setView("list")}>List</button>
         <button className={`gv-sort-btn${view==="tree"?" active":""}`}  onClick={()=>setView("tree")}>Tree</button>
         <button className={`gv-sort-btn${view==="weeks"?" active":""}`} onClick={()=>setView("weeks")}>By week</button>
+        <button className={`gv-sort-btn${view==="months"?" active":""}`} onClick={()=>setView("months")}>By month</button>
       </div>
 
       {view==="list"&&(
@@ -1946,7 +2099,8 @@ const GoalsView = memo(({ refreshKey }) => {
         <GoalTree goals={goals} onCommit={commitDrag} onEdit={editGoal} onDelete={delGoal}/>
       )}
 
-      {view==="weeks"&&<GoalWeeks goals={goals} onEdit={editGoal}/>}
+      {view==="weeks" &&<GoalPeriods goals={goals} unit="week"  onEdit={editGoal}/>}
+      {view==="months"&&<GoalPeriods goals={goals} unit="month" onEdit={editGoal}/>}
     </div>
   );
 });
