@@ -116,8 +116,8 @@ const saveHabits  = h => localStorage.setItem(HABITS_KEY, JSON.stringify(h));
 
 // ─── Goals helpers ────────────────────────────────────────────────────────────
 const GOALS_KEY  = "myjournal_goals";
-const blankGoal  = () => ({ id:uid(), title:"", why:"", target:"", done:false, createdAt:nowTs(), updatedAt:nowTs(), steps:[] });
-const blankStep  = () => ({ id:uid(), title:"", target:"", done:false });
+const blankGoal  = () => ({ id:uid(), title:"", why:"", target:"", week:"", timing:"date", done:false, createdAt:nowTs(), updatedAt:nowTs(), steps:[] });
+const blankStep  = () => ({ id:uid(), title:"", target:"", week:"", timing:"date", done:false });
 const loadGoals  = () => { try{const r=localStorage.getItem(GOALS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
 const saveGoals  = g => localStorage.setItem(GOALS_KEY, JSON.stringify(g));
 
@@ -149,6 +149,86 @@ const fmtCountdown = n => {
   if(n<365)    return `${Math.round(n/30)}mo left`;
   const y = n/365;
   return `${y>=2?Math.round(y):y.toFixed(1)}y left`;
+};
+const cdClass = n => n===null ? "none" : n<0 ? "over" : n<=30 ? "soon" : "";
+
+// ─── ISO weeks (Monday start; week 1 is the one holding the first Thursday) ───
+const isoWeekOf = d => {
+  const t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  t.setDate(t.getDate() + 3 - ((t.getDay()+6)%7));          // Thursday decides the year
+  const year = t.getFullYear();
+  const jan4 = new Date(year,0,4);
+  const week = 1 + Math.round(((t - jan4)/86400000 - 3 + ((jan4.getDay()+6)%7))/7);
+  return { year, week };
+};
+const isoWeekStart = (year, week) => {                       // Monday of that week
+  const jan4 = new Date(year,0,4);
+  const d = new Date(year, 0, 4 - ((jan4.getDay()+6)%7));
+  d.setDate(d.getDate() + (week-1)*7);
+  return d;
+};
+const isoWeeksInYear = y => isoWeekOf(new Date(y,11,28)).week;   // Dec 28 is always in the last week
+const weekKey        = (year,week) => `${year}-W${String(week).padStart(2,"0")}`;
+const parseWeekKey   = k => { const m=/^(\d{4})-W(\d{2})$/.exec(k||""); return m?{year:+m[1],week:+m[2]}:null; };
+const thisWeekKey    = () => { const {year,week}=isoWeekOf(new Date()); return weekKey(year,week); };
+const weekRangeLabel = k => {
+  const p=parseWeekKey(k); if(!p) return "";
+  const s=isoWeekStart(p.year,p.week), e=new Date(s); e.setDate(e.getDate()+6);
+  const f=d=>d.toLocaleDateString("en-US",{month:"short",day:"numeric"});
+  return `${f(s)}–${f(e)}`;
+};
+// A week goal is due at the END of its week, so it isn't "overdue" on the Tuesday.
+const daysUntilWeekEnd = k => {
+  const p=parseWeekKey(k); if(!p) return null;
+  const e=isoWeekStart(p.year,p.week); e.setDate(e.getDate()+6);
+  return daysUntil(dateKey(e));
+};
+// Week dropdown options for this year and next, rebuilt at most once a day.
+let _weekOpts=null, _weekOptsDay="";
+const weekOptions = () => {
+  const today=todayKey();
+  if(_weekOpts && _weekOptsDay===today) return _weekOpts;
+  const cy=isoWeekOf(new Date()).year, out=[];
+  [cy,cy+1].forEach(y=>{
+    for(let w=1;w<=isoWeeksInYear(y);w++){
+      const k=weekKey(y,w);
+      out.push({ key:k, label:`${y===cy?"":y+" "}W${w} · ${weekRangeLabel(k)}` });
+    }
+  });
+  _weekOptsDay=today; _weekOpts=out;
+  return out;
+};
+
+// ─── Goal / step scheduling ───────────────────────────────────────────────────
+// A goal or step is timed one of three ways: a target date, a week of the year,
+// or ongoing — something you keep at with no deadline at all.
+const GOAL_TIMINGS = [["date","Date"],["week","Week"],["ongoing","Ongoing"]];
+const timingOf = g => GOAL_TIMINGS.some(([k])=>k===g?.timing) ? g.timing : "date";
+
+const schedOf = item => {
+  const t = timingOf(item);
+  if(t==="ongoing") return { timing:t, days:null, label:"ongoing", cls:"ongoing" };
+  if(t==="week"){
+    const k=item?.week||"", p=parseWeekKey(k), d=daysUntilWeekEnd(k);
+    return { timing:t, days:d, week:k, cls:d===null?"none":cdClass(d),
+             label: p ? `W${p.week} · ${fmtCountdown(d)}` : "no week" };
+  }
+  const d=daysUntil(item?.target);
+  return { timing:t, days:d, label:fmtCountdown(d), cls:cdClass(d) };
+};
+const isOverdue = item => { const s=schedOf(item); return s.timing!=="ongoing" && s.days!==null && s.days<0; };
+// Sort key: soonest first, then ongoing, then anything with no schedule at all.
+const schedRank = item => { const s=schedOf(item); return s.timing==="ongoing" ? 1e9 : s.days===null ? 1e9+1 : s.days; };
+// Which week an item belongs to — a dated item still lands in its calendar week.
+const effWeekKey = item => {
+  const t=timingOf(item);
+  if(t==="ongoing") return "";
+  if(t==="week")    return item?.week||"";
+  const d=item?.target;
+  if(!d || !DATE_RE.test(d)) return "";
+  const [y,m,day]=d.split("-").map(Number);
+  const {year,week}=isoWeekOf(new Date(y,m-1,day));
+  return weekKey(year,week);
 };
 
 // ─── Ideas helpers ────────────────────────────────────────────────────────────
@@ -656,6 +736,57 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .goal-add-step{margin-top:2px;background:none;border:1.5px dashed #dde6ef;border-radius:7px;padding:7px 10px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:12px;color:#a8b8c8;cursor:pointer;width:100%;text-align:left;transition:all .2s;}
 .goal-add-step:hover{border-color:#5a7fa8;color:#5a7fa8;background:#5a7fa808;}
 
+/* ── goal timing (date / week / ongoing) ── */
+.tim-seg{display:inline-flex;border:1.5px solid #e2e9f0;border-radius:7px;overflow:hidden;flex-shrink:0;}
+.tim-btn{border:none;background:none;padding:4px 9px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#9fb0c2;cursor:pointer;transition:all .15s;}
+.tim-btn+.tim-btn{border-left:1.5px solid #e2e9f0;}
+.tim-btn.on{background:#5a7fa8;color:white;}
+.tim-btn:hover:not(.on){background:#f0f5fa;color:#5a7fa8;}
+.goal-week{border:none;outline:none;background:#f2f6fa;border-radius:6px;padding:4px 7px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:12px;color:#5a7fa8;cursor:pointer;max-width:190px;}
+.goal-cd.ongoing{background:#eaf3ee;color:#4f8f68;}
+.step-sched{display:flex;align-items:center;gap:5px;margin-left:auto;flex-shrink:0;}
+.step-tim{border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#8fa8bf;cursor:pointer;}
+.step-week{border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#8fa8bf;cursor:pointer;max-width:120px;}
+.step-cd.ongoing{color:#4f8f68;}
+
+/* ── goal tree (drag & drop) ── */
+.gt-hint{font-size:11px;color:#b8c6d4;margin-bottom:12px;}
+.gt-node{position:relative;}
+.gt-row{display:flex;align-items:center;gap:8px;border:1.5px solid transparent;border-radius:9px;transition:background .15s,border-color .15s;}
+.gt-root{background:white;border-color:#dde6ef;padding:9px 11px;margin-bottom:6px;}
+.gt-child{background:#f7fafc;padding:7px 10px;margin-bottom:5px;}
+.gt-children{margin-left:20px;padding-left:18px;border-left:1.5px solid #e2e9f0;margin-bottom:8px;}
+.gt-child::before{content:"";position:absolute;left:-18px;top:50%;width:14px;height:1.5px;background:#e2e9f0;}
+.gt-child-wrap{position:relative;}
+.gt-grip{flex-shrink:0;color:#c6d2de;font-size:13px;line-height:1;padding:3px 2px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;}
+.gt-grip:active{cursor:grabbing;color:#5a7fa8;}
+.gt-title{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:14px;color:#1a1a1a;}
+.gt-root .gt-title{font-family:'Playfair Display',serif;font-size:16px;font-weight:600;}
+.gt-title.struck{text-decoration:line-through;color:#bbb;}
+.gt-title::placeholder{color:#ccc;}
+.gt-dragging{opacity:.35;}
+.gt-drop-before{box-shadow:0 -3px 0 -1px #5a7fa8;}
+.gt-drop-after{box-shadow:0 3px 0 -1px #5a7fa8;}
+.gt-drop-into{border-color:#5a7fa8;background:#eef4fa;}
+.gt-badge{font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:#eef3f8;color:#5a7fa8;flex-shrink:0;}
+.gt-badge.over{background:#fdecec;color:#c05050;}
+.gt-badge.soon{background:#fdf3e3;color:#c98a2e;}
+.gt-badge.ongoing{background:#eaf3ee;color:#4f8f68;}
+.gt-badge.none{background:#f4f4f4;color:#bbb;font-weight:400;}
+
+/* ── goals by week ── */
+.gw-week{margin-bottom:16px;}
+.gw-hd{display:flex;align-items:baseline;gap:9px;margin-bottom:7px;padding-bottom:5px;border-bottom:1px solid #eef2f6;}
+.gw-num{font-family:'Playfair Display',serif;font-size:16px;font-weight:600;color:#1a1a1a;}
+.gw-num.now{color:#5a7fa8;}
+.gw-range{font-size:11px;color:#a8b8c8;}
+.gw-count{font-size:10px;color:#c0ccd8;margin-left:auto;text-transform:uppercase;letter-spacing:.8px;}
+.gw-item{display:flex;align-items:center;gap:9px;background:white;border:1.5px solid #eef2f6;border-radius:8px;padding:8px 11px;margin-bottom:5px;}
+.gw-item.sub{background:#f7fafc;border-color:transparent;margin-left:18px;}
+.gw-txt{flex:1;min-width:0;font-size:13px;color:#1a1a1a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.gw-txt.struck{text-decoration:line-through;color:#bbb;}
+.gw-parent{font-size:10px;color:#a8b8c8;flex-shrink:0;max-width:36%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
 /* ── reports view (annual report tracker) ── */
 .reports-view{padding:28px 52px 80px;max-width:760px;}
 .rp-add{display:flex;gap:7px;margin-bottom:24px;flex-wrap:wrap;}
@@ -903,7 +1034,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .book-fields{grid-template-columns:1fr;}
   /* Prevent iOS auto-zoom on input focus (triggered when font-size < 16px) */
   .ti,.loc-inp,.db-ta,.bf-inp,.mq-ta,.gi,.idea-title-inp,.idea-desc-ta,.bnote-ta,
-  .goal-title-inp,.goal-why,.step-inp,.rp-add-inp,.rp-co-inp,.rp-detail-inp{font-size:16px;}
+  .goal-title-inp,.goal-why,.step-inp,.rp-add-inp,.rp-co-inp,.rp-detail-inp,.gt-title{font-size:16px;}
   /* the date pickers stay small — they open a native picker, so no zoom risk */
   .step-date.set{width:92px;}
 }
@@ -1369,7 +1500,41 @@ const IdeasView = memo(({ refreshKey }) => {
 });
 
 // ─── GoalsView (big goals, each broken into smaller steps, on a timeline) ─────
-const cdClass = n => n===null ? "none" : n<0 ? "over" : n<=30 ? "soon" : "";
+// Date / Week / Ongoing switch plus whichever input that mode needs.
+const TimingPicker = memo(({ item, onSet, compact }) => {
+  const t = timingOf(item);
+  if(compact) return (
+    <>
+      <select className="step-tim" value={t} title="How this is timed"
+        onChange={e=>onSet("timing",e.target.value)}>
+        {GOAL_TIMINGS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
+      </select>
+      {t==="date"&&<input className={`step-date${item.target?" set":""}`} type="date" value={item.target||""}
+        title="Target date" onChange={e=>onSet("target",e.target.value)}/>}
+      {t==="week"&&<select className="step-week" value={item.week||""} title="Target week"
+        onChange={e=>onSet("week",e.target.value)}>
+        <option value="">Week…</option>
+        {weekOptions().map(o=><option key={o.key} value={o.key}>{o.label}</option>)}
+      </select>}
+    </>
+  );
+  return (
+    <>
+      <div className="tim-seg">
+        {GOAL_TIMINGS.map(([k,l])=>(
+          <button key={k} className={`tim-btn${t===k?" on":""}`} onClick={()=>onSet("timing",k)}>{l}</button>
+        ))}
+      </div>
+      {t==="date"&&<input className="goal-date" type="date" value={item.target||""}
+        onChange={e=>onSet("target",e.target.value)}/>}
+      {t==="week"&&<select className="goal-week" value={item.week||""}
+        onChange={e=>onSet("week",e.target.value)}>
+        <option value="">Pick a week…</option>
+        {weekOptions().map(o=><option key={o.key} value={o.key}>{o.label}</option>)}
+      </select>}
+    </>
+  );
+});
 
 const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, onDelete, onMove }) => {
   const grow  = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
@@ -1378,7 +1543,7 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
   const real  = steps.filter(s=>s.title?.trim());
   const done  = real.filter(s=>s.done).length;
   const pct   = real.length ? Math.round(done/real.length*100) : (goal.done?100:0);
-  const cd    = daysUntil(goal.target);
+  const sched = schedOf(goal);
 
   const setStep = (id,f,v)=>set("steps",steps.map(s=>s.id===id?{...s,[f]:v}:s));
   const addStep = ()=>set("steps",[...steps,blankStep()]);
@@ -1399,8 +1564,8 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
       </div>
 
       <div className="goal-meta">
-        <input className="goal-date" type="date" value={goal.target||""} onChange={e=>set("target",e.target.value)}/>
-        <span className={`goal-cd${cdClass(cd)?" "+cdClass(cd):""}`}>{fmtCountdown(cd)}</span>
+        <TimingPicker item={goal} onSet={set}/>
+        <span className={`goal-cd${sched.cls?" "+sched.cls:""}`}>{sched.label}</span>
         {real.length>0&&<>
           <div className="goal-prog"><div className="goal-prog-fill" style={{width:`${pct}%`}}/></div>
           <span className="goal-prog-lbl">{done}/{real.length}</span>
@@ -1414,16 +1579,18 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
             onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
           <div className="goal-sec-lbl">Smaller goals</div>
           {steps.map(s=>{
-            const scd=daysUntil(s.target);
+            const ss=schedOf(s);
             return (
               <div key={s.id} className="step-row">
                 <div className={`ck${s.done?" done":""}`} onClick={()=>setStep(s.id,"done",!s.done)}>{s.done&&"✓"}</div>
                 <input className={`step-inp${s.done?" struck":""}`} value={s.title} placeholder="A step toward it…"
                   onChange={e=>setStep(s.id,"title",e.target.value)}
                   onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addStep();}}}/>
-                {scd!==null&&!s.done&&<span className={`step-cd${scd<0?" over":""}`}>{fmtCountdown(scd)}</span>}
-                <input className={`step-date${s.target?" set":""}`} type="date" value={s.target||""}
-                  title="Target date" onChange={e=>setStep(s.id,"target",e.target.value)}/>
+                <div className="step-sched">
+                  {!s.done&&ss.days!==null&&<span className={`step-cd${ss.days<0?" over":""}`}>{fmtCountdown(ss.days)}</span>}
+                  {!s.done&&ss.timing==="ongoing"&&<span className="step-cd ongoing">ongoing</span>}
+                  <TimingPicker item={s} compact onSet={(f,v)=>setStep(s.id,f,v)}/>
+                </div>
                 <button className="goal-btn del" onClick={()=>delStep(s.id)}>×</button>
               </div>
             );
@@ -1435,9 +1602,210 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
   );
 });
 
+// ─── GoalTree ─────────────────────────────────────────────────────────────────
+// Big goals branch into smaller ones, reorderable by dragging the grip. Uses
+// pointer events rather than HTML5 drag-and-drop, which does not fire on touch
+// screens — so this works the same with a finger as with a mouse.
+const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
+  const [drag, setDrag] = useState(null);   // {kind:"goal"|"step", id}
+  const [over, setOver] = useState(null);   // {kind, id, pos:"before"|"after"|"into"}
+  const dragRef = useRef(null), overRef = useRef(null), nodes = useRef(new Map());
+
+  const reg = (id, kind, el) => { if(el) nodes.current.set(id,{el,kind}); else nodes.current.delete(id); };
+
+  const hitTest = (x,y) => {
+    const d = dragRef.current; if(!d) return null;
+    let hit = null;
+    nodes.current.forEach((meta,id)=>{
+      if(id===d.id || !meta.el) return;
+      const r = meta.el.getBoundingClientRect();
+      if(y < r.top-3 || y > r.bottom+3) return;
+      // A goal dragged over another goal reorders; a step dropped on a goal
+      // moves into it, and dropped on another step lands beside it.
+      if(d.kind==="goal"){
+        if(meta.kind!=="goal") return;
+        hit = {kind:meta.kind, id, pos: y < r.top+r.height/2 ? "before" : "after"};
+      } else if(meta.kind==="goal"){
+        hit = {kind:meta.kind, id, pos:"into"};
+      } else {
+        hit = {kind:meta.kind, id, pos: y < r.top+r.height/2 ? "before" : "after"};
+      }
+    });
+    return hit;
+  };
+
+  const onDown = (e,kind,id) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    dragRef.current={kind,id}; setDrag({kind,id});
+  };
+  const onMove = e => {
+    if(!dragRef.current) return;
+    const hit = hitTest(e.clientX,e.clientY);
+    overRef.current = hit; setOver(hit);
+    // nudge the scroller when dragging near the top or bottom edge
+    const sc=document.querySelector(".main"); const m=70;
+    if(sc){
+      if(e.clientY<m) sc.scrollTop-=14;
+      else if(e.clientY>window.innerHeight-m) sc.scrollTop+=14;
+    }
+  };
+  const onUp = () => {
+    const d=dragRef.current, o=overRef.current;
+    dragRef.current=null; overRef.current=null; setDrag(null); setOver(null);
+    if(d&&o&&o.id!==d.id) onCommit(d,o);
+  };
+
+  const dropCls = id => {
+    if(!over||over.id!==id) return "";
+    return over.pos==="into" ? " gt-drop-into" : over.pos==="before" ? " gt-drop-before" : " gt-drop-after";
+  };
+  const grip = (kind,id) => (
+    <span className="gt-grip" title="Drag to move"
+      onPointerDown={e=>onDown(e,kind,id)} onPointerMove={onMove}
+      onPointerUp={onUp} onPointerCancel={onUp}>⠿</span>
+  );
+
+  if(!goals.length) return (
+    <div className="empty" style={{marginTop:16}}>No goals yet. Add a big one above to start the tree.</div>
+  );
+
+  return (
+    <div>
+      <div className="gt-hint">Drag ⠿ to reorder, or drop a smaller goal onto another big goal to move it there.</div>
+      {goals.map(g=>{
+        const gs=schedOf(g), steps=g.steps||[];
+        return (
+          <div key={g.id} className="gt-node">
+            <div ref={el=>reg(g.id,"goal",el)}
+              className={`gt-row gt-root${drag?.id===g.id?" gt-dragging":""}${dropCls(g.id)}`}>
+              {grip("goal",g.id)}
+              <div className={`ck${g.done?" done":""}`} onClick={()=>onEdit(g.id,{done:!g.done})}>{g.done&&"✓"}</div>
+              <input className={`gt-title${g.done?" struck":""}`} value={g.title} placeholder="A big goal…"
+                onChange={e=>onEdit(g.id,{title:e.target.value})}/>
+              <span className={`gt-badge${gs.cls?" "+gs.cls:""}`}>{gs.label}</span>
+              <button className="goal-btn del" onClick={()=>onDelete(g.id)}>×</button>
+            </div>
+            {steps.length>0&&(
+              <div className="gt-children">
+                {steps.map(s=>{
+                  const ss=schedOf(s);
+                  return (
+                    <div key={s.id} className="gt-child-wrap">
+                      <div ref={el=>reg(s.id,"step",el)}
+                        className={`gt-row gt-child${drag?.id===s.id?" gt-dragging":""}${dropCls(s.id)}`}>
+                        {grip("step",s.id)}
+                        <div className={`ck${s.done?" done":""}`}
+                          onClick={()=>onEdit(g.id,{steps:steps.map(x=>x.id===s.id?{...x,done:!x.done}:x)})}>{s.done&&"✓"}</div>
+                        <input className={`gt-title${s.done?" struck":""}`} value={s.title} placeholder="A smaller goal…"
+                          onChange={e=>onEdit(g.id,{steps:steps.map(x=>x.id===s.id?{...x,title:e.target.value}:x)})}/>
+                        <span className={`gt-badge${ss.cls?" "+ss.cls:""}`}>{ss.label}</span>
+                        <button className="goal-btn del"
+                          onClick={()=>onEdit(g.id,{steps:steps.filter(x=>x.id!==s.id)})}>×</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
+// ─── GoalWeeks (the year broken into week numbers) ────────────────────────────
+const GoalWeeks = memo(({ goals, onEdit }) => {
+  const { weeks, ongoing, undated } = useMemo(()=>{
+    const map=new Map(), ongoing=[], undated=[];
+    const push=(k,it)=>{ if(!map.has(k)) map.set(k,[]); map.get(k).push(it); };
+    goals.forEach(g=>{
+      const ge={kind:"goal",goal:g,item:g};
+      const gt=timingOf(g), gk=effWeekKey(g);
+      if(gt==="ongoing") ongoing.push(ge);
+      else if(gk)        push(gk,ge);
+      else               undated.push(ge);
+      // Steps only appear here once they carry their own week or date —
+      // otherwise they simply live under their parent.
+      (g.steps||[]).filter(s=>s.title?.trim()).forEach(s=>{
+        const se={kind:"step",goal:g,item:s};
+        const st=timingOf(s), sk=effWeekKey(s);
+        if(st==="ongoing") ongoing.push(se);
+        else if(sk)        push(sk,se);
+      });
+    });
+    return { weeks:[...map.entries()].sort((a,b)=>a[0].localeCompare(b[0])), ongoing, undated };
+  },[goals]);
+
+  const now=thisWeekKey(), cy=isoWeekOf(new Date()).year;
+  const toggle=(e)=>{
+    if(e.kind==="goal") onEdit(e.goal.id,{done:!e.item.done});
+    else onEdit(e.goal.id,{steps:(e.goal.steps||[]).map(x=>x.id===e.item.id?{...x,done:!x.done}:x)});
+  };
+  const row=(e,i)=>(
+    <div key={`${e.kind}-${e.item.id}-${i}`} className={`gw-item${e.kind==="step"?" sub":""}`}>
+      <div className={`ck${e.item.done?" done":""}`} onClick={()=>toggle(e)}>{e.item.done&&"✓"}</div>
+      <span className={`gw-txt${e.item.done?" struck":""}`}>{e.item.title||<em style={{color:"#ccc"}}>Untitled</em>}</span>
+      {e.kind==="step"&&<span className="gw-parent">↳ {e.goal.title||"Untitled goal"}</span>}
+    </div>
+  );
+
+  const hasAny = weeks.length||ongoing.length||undated.length;
+  if(!hasAny) return <div className="empty" style={{marginTop:16}}>Nothing scheduled yet. Give a goal a week or a date.</div>;
+
+  return (
+    <div>
+      {!weeks.some(([k])=>k===now)&&(
+        <div className="gw-week">
+          <div className="gw-hd">
+            <span className="gw-num now">W{parseWeekKey(now).week}</span>
+            <span className="gw-range">{weekRangeLabel(now)} · this week</span>
+          </div>
+          <div className="rv-no-notes">Nothing scheduled this week.</div>
+        </div>
+      )}
+      {weeks.map(([k,items])=>{
+        const p=parseWeekKey(k);
+        return (
+          <div key={k} className="gw-week">
+            <div className="gw-hd">
+              <span className={`gw-num${k===now?" now":""}`}>{p.year!==cy?`${p.year} `:""}W{p.week}</span>
+              <span className="gw-range">{weekRangeLabel(k)}{k===now?" · this week":""}</span>
+              <span className="gw-count">{items.length} item{items.length!==1?"s":""}</span>
+            </div>
+            {items.map(row)}
+          </div>
+        );
+      })}
+      {ongoing.length>0&&(
+        <div className="gw-week">
+          <div className="gw-hd">
+            <span className="gw-num">Ongoing</span>
+            <span className="gw-range">no deadline — kept at continuously</span>
+            <span className="gw-count">{ongoing.length}</span>
+          </div>
+          {ongoing.map(row)}
+        </div>
+      )}
+      {undated.length>0&&(
+        <div className="gw-week">
+          <div className="gw-hd">
+            <span className="gw-num">Unscheduled</span>
+            <span className="gw-range">no week or date yet</span>
+            <span className="gw-count">{undated.length}</span>
+          </div>
+          {undated.map(row)}
+        </div>
+      )}
+    </div>
+  );
+});
+
 const GoalsView = memo(({ refreshKey }) => {
   const [goals,     setGoals]     = useState(()=>loadGoals());
   const [sort,      setSort]      = useState("mine");
+  const [view,      setView]      = useState("list");
   const [collapsed, setCollapsed] = useState({});
 
   useEffect(()=>setGoals(loadGoals()),[refreshKey]);
@@ -1465,20 +1833,58 @@ const GoalsView = memo(({ refreshKey }) => {
     persist(arr);
   },[persist]);
 
-  // Achieved goals sink to the bottom either way; undated ones sort last by date.
-  const sorted = useMemo(()=>{
-    const byDate=(a,b)=>{
-      const da=daysUntil(a.target), db=daysUntil(b.target);
-      if(da===null&&db===null) return 0;
-      if(da===null) return 1;
-      if(db===null) return -1;
-      return da-db;
-    };
-    return [...goals].sort((a,b)=>(a.done?1:0)-(b.done?1:0)||(sort==="deadline"?byDate(a,b):0));
-  },[goals,sort]);
+  // Patch a goal in place — used by the tree and week views.
+  const editGoal = useCallback((id,patch)=>{
+    persist(loadGoals().map(g=>g.id===id?{...g,...patch,updatedAt:nowTs()}:g));
+  },[persist]);
+
+  // Apply a drag. Rejects any move that would change the total item count,
+  // so a mis-hit can never silently drop a goal or a step.
+  const commitDrag = useCallback((d,o)=>{
+    const arr = loadGoals().map(g=>({...g, steps:[...(g.steps||[])]}));
+    const count = a => a.length + a.reduce((n,g)=>n+g.steps.length,0);
+    const before = count(arr);
+
+    if(d.kind==="goal"){
+      if(o.pos==="into") return;
+      const from=arr.findIndex(g=>g.id===d.id);
+      if(from<0||!arr.some(g=>g.id===o.id)) return;
+      const [moved]=arr.splice(from,1);
+      let to=arr.findIndex(g=>g.id===o.id);
+      if(to<0) return;
+      if(o.pos==="after") to+=1;
+      arr.splice(to,0,moved);
+    } else {
+      const src=arr.find(g=>g.steps.some(s=>s.id===d.id));
+      if(!src) return;
+      const si=src.steps.findIndex(s=>s.id===d.id);
+      const moved=src.steps[si];
+      let dst,to;
+      if(o.pos==="into"){
+        dst=arr.find(g=>g.id===o.id);
+        if(!dst) return;
+        to=dst.steps.length;
+      } else {
+        dst=arr.find(g=>g.steps.some(s=>s.id===o.id));
+        if(!dst) return;
+        to=dst.steps.findIndex(s=>s.id===o.id)+(o.pos==="after"?1:0);
+      }
+      src.steps.splice(si,1);
+      if(dst===src && to>si) to-=1;              // index shifted by the removal
+      dst.steps.splice(to,0,moved);
+    }
+    if(count(arr)!==before) return;
+    persist(arr.map(g=>({...g,updatedAt:nowTs()})));
+  },[persist]);
+
+  // Achieved goals sink to the bottom either way; ongoing and unscheduled last.
+  const sorted = useMemo(()=>
+    [...goals].sort((a,b)=>(a.done?1:0)-(b.done?1:0)||(sort==="deadline"?schedRank(a)-schedRank(b):0))
+  ,[goals,sort]);
 
   const open      = goals.filter(g=>!g.done).length;
-  const overdue   = goals.filter(g=>!g.done&&(daysUntil(g.target)??1)<0).length;
+  const overdue   = goals.filter(g=>!g.done&&isOverdue(g)).length;
+  const ongoingN  = goals.filter(g=>!g.done&&timingOf(g)==="ongoing").length;
   const manual    = sort==="mine";
 
   return (
@@ -1486,36 +1892,45 @@ const GoalsView = memo(({ refreshKey }) => {
       <div className="eyebrow">Where you're headed</div>
       <h1 className="pg-title">My <em>Goals</em></h1>
       <p style={{fontSize:13,color:"#aaa",fontWeight:300,marginTop:6,marginBottom:6}}>
-        Big goals first, each broken into smaller ones — with a date on whichever you want to track.
+        Big goals first, each broken into smaller ones — on a date, a week of the year, or ongoing with no deadline.
       </p>
       {goals.length>0&&(
         <p style={{fontSize:12,color:overdue?"#c05050":"#5a7fa8",marginBottom:18}}>
-          {open} open · {goals.length-open} achieved{overdue?` · ${overdue} past due`:""}
+          {open} open · {goals.length-open} achieved
+          {ongoingN?` · ${ongoingN} ongoing`:""}{overdue?` · ${overdue} past due`:""}
         </p>
       )}
 
       <button className="add-row" style={{marginBottom:16}} onClick={addGoal}>+ Add a big goal</button>
 
       <div className="gv-sort">
-        <button className={`gv-sort-btn${manual?" active":""}`} onClick={()=>setSort("mine")}>My order</button>
-        <button className={`gv-sort-btn${!manual?" active":""}`} onClick={()=>setSort("deadline")}>By deadline</button>
-        {goals.length>1&&(
-          <button className="gv-sort-btn" onClick={()=>{
-            const allOpen=goals.every(g=>collapsed[g.id]);
-            setCollapsed(allOpen?{}:Object.fromEntries(goals.map(g=>[g.id,true])));
-          }}>
-            {goals.every(g=>collapsed[g.id])?"Expand all":"Collapse all"}
-          </button>
-        )}
+        <button className={`gv-sort-btn${view==="list"?" active":""}`}  onClick={()=>setView("list")}>List</button>
+        <button className={`gv-sort-btn${view==="tree"?" active":""}`}  onClick={()=>setView("tree")}>Tree</button>
+        <button className={`gv-sort-btn${view==="weeks"?" active":""}`} onClick={()=>setView("weeks")}>By week</button>
       </div>
 
-      {goals.length===0&&(
+      {view==="list"&&(
+        <div className="gv-sort">
+          <button className={`gv-sort-btn${manual?" active":""}`} onClick={()=>setSort("mine")}>My order</button>
+          <button className={`gv-sort-btn${!manual?" active":""}`} onClick={()=>setSort("deadline")}>By deadline</button>
+          {goals.length>1&&(
+            <button className="gv-sort-btn" onClick={()=>{
+              const allOpen=goals.every(g=>collapsed[g.id]);
+              setCollapsed(allOpen?{}:Object.fromEntries(goals.map(g=>[g.id,true])));
+            }}>
+              {goals.every(g=>collapsed[g.id])?"Expand all":"Collapse all"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {view==="list"&&goals.length===0&&(
         <div className="empty" style={{marginTop:16}}>
           No goals yet. Add a big one above, then break it into smaller goals.
         </div>
       )}
 
-      {sorted.map(g=>{
+      {view==="list"&&sorted.map(g=>{
         const i=goals.findIndex(x=>x.id===g.id);
         return (
           <GoalCard key={g.id} goal={g} collapsed={!!collapsed[g.id]}
@@ -1526,6 +1941,12 @@ const GoalsView = memo(({ refreshKey }) => {
             onMove={dir=>moveGoal(g.id,dir)}/>
         );
       })}
+
+      {view==="tree"&&(
+        <GoalTree goals={goals} onCommit={commitDrag} onEdit={editGoal} onDelete={delGoal}/>
+      )}
+
+      {view==="weeks"&&<GoalWeeks goals={goals} onEdit={editGoal}/>}
     </div>
   );
 });
