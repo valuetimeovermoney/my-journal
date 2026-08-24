@@ -382,6 +382,23 @@ const saveIdeas  = ideas => localStorage.setItem(IDEAS_KEY, JSON.stringify(ideas
 // ─── Annual report tracker helpers ────────────────────────────────────────────
 const REPORTS_KEY = "myjournal_reports";
 const REPORT_DEPTHS = [["new","New"],["deep","Deep dive"]];
+// What a note came from. Filings first, since those are the bulk of it.
+const SOURCE_KINDS = [
+  ["10-K","10-K"], ["10-Q","10-Q"], ["8-K","8-K"], ["proxy","Proxy (DEF 14A)"],
+  ["s-1","S-1 / prospectus"], ["transcript","Earnings call"], ["deck","Investor deck"],
+  ["article","Article"], ["video","Video"], ["podcast","Podcast"], ["book","Book"], ["other","Other"],
+];
+const kindLabel = k => (SOURCE_KINDS.find(([v])=>v===k)||[])[1] || "";
+// A pasted link is put in an href, so anything that isn't plainly http(s) is
+// dropped rather than trusted — javascript: and data: URLs run on click.
+// A bare domain gets https:// so "apple.com" still works.
+const safeUrl = u => {
+  const t=(u||"").trim();
+  if(!t) return "";
+  if(/^https?:\/\//i.test(t)) return t;
+  if(/^[a-z][a-z0-9+.-]*:/i.test(t)) return "";
+  return `https://${t}`;
+};
 // Anything saved before this existed reads as a first look.
 const depthOf = r => r?.depth==="deep" ? "deep" : "new";
 const normCompany = c => (c||"").trim().toLowerCase();
@@ -1037,6 +1054,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .gw-parent{font-size:10px;color:#a8b8c8;flex-shrink:0;max-width:36%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 /* ── reports view (company research tracker) ── */
+.rn-bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px;}
+.rn-when{font-size:10px;color:#5a9a60;font-weight:500;letter-spacing:.3px;flex-shrink:0;}
+.rn-kind{border:1.5px solid #dfeee1;border-radius:20px;background:none;padding:1px 7px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;color:#7ba382;cursor:pointer;outline:none;flex-shrink:0;max-width:130px;}
+.rn-link{flex:1;min-width:90px;border:none;outline:none;background:transparent;border-bottom:1px solid #eef4ee;padding:1px 0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#7f97b5;transition:border-color .2s;}
+.rn-link:focus{border-color:#5a9a60;}
+.rn-link::placeholder{color:#ccd8cc;}
+.rn-open{flex-shrink:0;text-decoration:none;color:#5a9a60;font-size:13px;padding:0 2px;line-height:1;}
+.rn-open:hover{color:#3f7a48;}
+.rc-kind{padding:1px 8px;border-radius:20px;background:#eef6ef;color:#6f9c77;font-size:10px;font-weight:600;}
 .rc-co{background:white;border-radius:10px;padding:16px 18px;margin-bottom:14px;border:1.5px solid #e2ece3;}
 .rc-hd{margin-bottom:13px;padding-bottom:11px;border-bottom:1px solid #f0f6f0;}
 .rc-name{font-family:'Playfair Display',serif;font-size:17px;font-weight:600;color:#1a1a1a;line-height:1.3;}
@@ -1306,7 +1332,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .book-fields{grid-template-columns:1fr;}
   /* Prevent iOS auto-zoom on input focus (triggered when font-size < 16px) */
   .ti,.loc-inp,.db-ta,.bf-inp,.mq-ta,.gi,.idea-title-inp,.idea-desc-ta,.bnote-ta,
-  .goal-title-inp,.gnote-ta,.step-inp,.rp-add-inp,.rp-co-inp,.gt-title,.wp-goal-inp,.wp-step-inp{font-size:16px;}
+  .goal-title-inp,.gnote-ta,.step-inp,.rp-add-inp,.rp-co-inp,.rn-link,.gt-title,.wp-goal-inp,.wp-step-inp{font-size:16px;}
   /* the date pickers stay small — they open a native picker, so no zoom risk */
   .step-date.set{width:92px;}
 }
@@ -2561,27 +2587,42 @@ const ReportSpan = memo(({ r }) => {
   );
 });
 
+const ResearchNote = memo(({ note, dateLabel, autoFocus, onChange, onDelete }) => {
+  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
+  const href = safeUrl(note.link);
+  return (
+    <div className="gnote">
+      <div className="rn-bar">
+        <span className="rn-when">{dateLabel}</span>
+        <select className="rn-kind" value={note.kind||""} title="What is this from?"
+          onChange={e=>onChange({kind:e.target.value})}>
+          <option value="">Source…</option>
+          {SOURCE_KINDS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+        </select>
+        <input className="rn-link" value={note.link||""} placeholder="Paste a link…"
+          onChange={e=>onChange({link:e.target.value})}/>
+        {href&&<a className="rn-open" href={href} target="_blank" rel="noreferrer noopener" title={href}>↗</a>}
+        <button className="goal-btn del" onClick={onDelete}>×</button>
+      </div>
+      <textarea className="gnote-ta" value={note.text} autoFocus={autoFocus}
+        placeholder="What stood out? Numbers, risks, questions…"
+        onChange={e=>{onChange({text:e.target.value});grow(e.target);}}
+        onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+    </div>
+  );
+});
+
 const ReportNotes = memo(({ r, open, onSet }) => {
   const notes = Array.isArray(r.notes) ? r.notes : [];
   if(!open) return null;
-  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
   return (
     <div className="rp-notes">
       <div className="gnote-list">
         {notes.map(nt=>(
-          <div key={nt.id} className="gnote">
-            <div className="gnote-head">
-              <span className="gnote-ts">
-                {nt.ts?fmtTime(nt.ts):"earlier"}
-                {nt.ts?` · ${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric"})}`:""}
-              </span>
-              <button className="goal-btn del"
-                onClick={()=>onSet({notes:notes.filter(x=>x.id!==nt.id)})}>×</button>
-            </div>
-            <textarea className="gnote-ta" value={nt.text} placeholder="What stood out? Numbers, risks, questions…"
-              onChange={e=>{onSet({notes:notes.map(x=>x.id===nt.id?{...x,text:e.target.value}:x)});grow(e.target);}}
-              onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
-          </div>
+          <ResearchNote key={nt.id} note={nt}
+            dateLabel={nt.ts?`${fmtTime(nt.ts)} · ${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric"})}`:"earlier"}
+            onChange={patch=>onSet({notes:notes.map(x=>x.id===nt.id?{...x,...patch}:x)})}
+            onDelete={()=>onSet({notes:notes.filter(x=>x.id!==nt.id)})}/>
         ))}
       </div>
       <button className="goal-add-step"
@@ -2613,8 +2654,6 @@ const ResearchByCompany = memo(({ reports, newNoteId, onNoteChange, onNoteDelete
       .sort((a,b)=>(b.last||"").localeCompare(a.last||"") || b.notes.length-a.notes.length);
   },[reports]);
 
-  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
-
   if(!companies.length) return (
     <div className="rv-no-notes" style={{marginTop:12}}>No companies yet. Add one above to start a research log.</div>
   );
@@ -2631,25 +2670,21 @@ const ResearchByCompany = memo(({ reports, newNoteId, onNoteChange, onNoteDelete
             <div className="rc-stats">
               <span><strong>{c.sessions}</strong> session{c.sessions!==1?"s":""}</span>
               <span><strong>{c.notes.length}</strong> note{c.notes.length!==1?"s":""}</span>
+              {[...new Set(c.notes.map(nt=>nt.kind).filter(Boolean))].slice(0,4)
+                .map(k=><span key={k} className="rc-kind">{kindLabel(k)}</span>)}
               {c.first&&<span>first {fmtDate(c.first,{month:"short",day:"numeric"})}</span>}
               {c.last&&c.last!==c.first&&<span>latest {fmtDate(c.last,{month:"short",day:"numeric"})}</span>}
             </div>
           </div>
 
-          {c.notes.map((nt,i)=>(
-            <div key={`${nt.entryId}-${nt.id}`} className={`rc-note${i===0?" first":""}`}>
-              <div className="rc-note-hd">
-                <span className="rc-note-date">
-                  {nt.ts
-                    ? `${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric",year:"numeric"})} · ${fmtTime(nt.ts)}`
-                    : nt.entryDate ? fmtDate(nt.entryDate,{month:"short",day:"numeric",year:"numeric"}) : "earlier"}
-                </span>
-                <button className="goal-btn del" onClick={()=>onNoteDelete(nt.entryId,nt.id)}>×</button>
-              </div>
-              <textarea className="gnote-ta" value={nt.text} autoFocus={nt.id===newNoteId}
-                placeholder="What stood out? Numbers, risks, questions…"
-                onChange={e=>{onNoteChange(nt.entryId,nt.id,e.target.value);grow(e.target);}}
-                onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+          {c.notes.map(nt=>(
+            <div key={`${nt.entryId}-${nt.id}`} className="rc-note">
+              <ResearchNote note={nt} autoFocus={nt.id===newNoteId}
+                dateLabel={nt.ts
+                  ? `${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric",year:"numeric"})} · ${fmtTime(nt.ts)}`
+                  : nt.entryDate ? fmtDate(nt.entryDate,{month:"short",day:"numeric",year:"numeric"}) : "earlier"}
+                onChange={patch=>onNoteChange(nt.entryId,nt.id,patch)}
+                onDelete={()=>onNoteDelete(nt.entryId,nt.id)}/>
             </div>
           ))}
 
@@ -2688,9 +2723,9 @@ const ReportsView = memo(({ refreshKey }) => {
   const del = id=>persist(loadReports().filter(r=>r.id!==id));
 
   // The by-company view edits notes belonging to whichever entry holds them.
-  const noteChange = (entryId,noteId,text)=>{
+  const noteChange = (entryId,noteId,patch)=>{
     const e=loadReports().find(x=>x.id===entryId); if(!e) return;
-    upd(entryId,{notes:(e.notes||[]).map(nt=>nt.id===noteId?{...nt,text}:nt)});
+    upd(entryId,{notes:(e.notes||[]).map(nt=>nt.id===noteId?{...nt,...patch}:nt)});
   };
   const noteDelete = (entryId,noteId)=>{
     const e=loadReports().find(x=>x.id===entryId); if(!e) return;
