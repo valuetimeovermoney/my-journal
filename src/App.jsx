@@ -117,7 +117,7 @@ const saveHabits  = h => localStorage.setItem(HABITS_KEY, JSON.stringify(h));
 // ─── Goals helpers ────────────────────────────────────────────────────────────
 const GOALS_KEY  = "myjournal_goals";
 const blankGoal  = () => ({ id:uid(), title:"", why:"", start:"", target:"", week:"", month:"", timing:"date", done:false, doneP:{}, createdAt:nowTs(), updatedAt:nowTs(), steps:[] });
-const blankStep  = () => ({ id:uid(), title:"", target:"", week:"", month:"", timing:"date", done:false, doneP:{} });
+const blankStep  = () => ({ id:uid(), title:"", start:"", target:"", week:"", month:"", timing:"date", done:false, doneP:{} });
 const loadGoals  = () => { try{const r=localStorage.getItem(GOALS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
 const saveGoals  = g => localStorage.setItem(GOALS_KEY, JSON.stringify(g));
 
@@ -856,7 +856,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .goal-why{width:100%;border:none;outline:none;background:transparent;resize:none;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:13px;font-weight:300;line-height:1.7;color:#666;min-height:32px;margin-bottom:12px;}
 .goal-why::placeholder{color:#ccc;}
 .goal-sec-lbl{font-size:10px;color:#a8b8c8;text-transform:uppercase;letter-spacing:1px;margin-bottom:7px;}
-.step-row{display:flex;align-items:center;gap:9px;background:#f7fafc;border-radius:7px;padding:7px 10px;margin-bottom:5px;}
+.step-row{display:flex;align-items:center;gap:9px;background:#f7fafc;border-radius:7px;padding:7px 10px;margin-bottom:5px;flex-wrap:wrap;}
+.step-span{flex:0 0 100%;display:flex;align-items:center;gap:7px;margin:1px 0 0 27px;}
+.wp-span{margin:4px 0 0 26px;}
 .step-inp{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:13px;font-weight:300;color:#1a1a1a;}
 .step-inp::placeholder{color:#c5cfd8;}
 .step-inp.struck{text-decoration:line-through;color:#bbb;}
@@ -1694,6 +1696,44 @@ const IdeasView = memo(({ refreshKey }) => {
 });
 
 // ─── GoalsView (big goals, each broken into smaller steps, on a timeline) ─────
+// Set or clear a start date. Same control for a big goal and a smaller one —
+// only the date input's styling differs.
+const StartControl = memo(({ item, onSet, compact }) => {
+  if(!spanOf(item)) return (
+    <button className="btn-tiny" title="Track when this starts"
+      onClick={()=>onSet("start",todayKey())}>+ start</button>
+  );
+  return (
+    <span className="goal-start">
+      <input className={compact?"step-date set":"goal-date"} type="date" value={item.start||""}
+        title="Start date" onChange={e=>onSet("start",e.target.value)}/>
+      <button className="goal-btn del" title="Remove start date" onClick={()=>onSet("start","")}>×</button>
+    </span>
+  );
+});
+
+// How far through the span we are — a countdown before it starts, a bar once
+// it has, or just elapsed days when there is no deadline to measure against.
+const SpanLine = memo(({ item, cls }) => {
+  const sp = spanOf(item);
+  if(!sp) return null;
+  return (
+    <div className={cls||"goal-span"}>
+      {sp.notStarted
+        ? <span className="span-lbl pre">starts in {sp.until}d · {fmtDate(sp.start,{month:"short",day:"numeric"})}</span>
+        : sp.total>0
+          ? <>
+              <div className="span-bar"><div className="span-fill" style={{width:`${sp.pct}%`}}/></div>
+              <span className="span-lbl">day {sp.elapsed+1} of {sp.total+1}</span>
+            </>
+          : <span className="span-lbl">
+              started {fmtDate(sp.start,{month:"short",day:"numeric"})}
+              {sp.until<0?` · ${-sp.until}d in`:" · today"}
+            </span>}
+    </div>
+  );
+});
+
 // Timing mode plus whichever input that mode needs. Six modes is past what a
 // segmented control can carry, so it's a grouped select.
 const TimingSelect = ({ cls, value, onChange }) => (
@@ -1765,7 +1805,6 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
   const real  = steps.filter(s=>s.title?.trim());
   const done  = real.filter(periodDone).length;
   const sched = schedOf(goal);
-  const span  = spanOf(goal);
   const gDone = periodDone(goal);
   const pct   = real.length ? Math.round(done/real.length*100) : (gDone?100:0);
 
@@ -1791,34 +1830,13 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
       <div className="goal-meta">
         <TimingPicker item={goal} onSet={set}/>
         <span className={`goal-cd${sched.cls?" "+sched.cls:""}`}>{sched.label}</span>
-        {span
-          ?<span className="goal-start">
-             <input className="goal-date" type="date" value={goal.start||""} title="Start date"
-               onChange={e=>set("start",e.target.value)}/>
-             <button className="goal-btn del" title="Remove start date" onClick={()=>set("start","")}>×</button>
-           </span>
-          :<button className="btn-tiny" title="Track when this starts"
-             onClick={()=>set("start",todayKey())}>+ start</button>}
+        <StartControl item={goal} onSet={set}/>
         {real.length>0&&<>
           <div className="goal-prog"><div className="goal-prog-fill" style={{width:`${pct}%`}}/></div>
           <span className="goal-prog-lbl">{done}/{real.length}</span>
         </>}
       </div>
-      {span&&(
-        <div className="goal-span">
-          {span.notStarted
-            ? <span className="span-lbl pre">starts in {span.until}d · {fmtDate(span.start,{month:"short",day:"numeric"})}</span>
-            : span.total>0
-              ? <>
-                  <div className="span-bar"><div className="span-fill" style={{width:`${span.pct}%`}}/></div>
-                  <span className="span-lbl">day {span.elapsed+1} of {span.total+1}</span>
-                </>
-              : <span className="span-lbl">
-                  started {fmtDate(span.start,{month:"short",day:"numeric"})}
-                  {span.until<0?` · ${-span.until}d in`:" · today"}
-                </span>}
-        </div>
-      )}
+      <SpanLine item={goal}/>
       <PeriodStrip item={goal} onToggleKey={k=>{
         const dp={...(goal.doneP||{})}; if(dp[k]) delete dp[k]; else dp[k]=true;
         onChange({...goal,doneP:dp});
@@ -1844,8 +1862,10 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
                   {!periodDone(s)&&!ss.recurring&&ss.days!==null&&<span className={`step-cd${ss.days<0?" over":""}`}>{fmtCountdown(ss.days)}</span>}
                   {ss.timing==="ongoing"&&<span className="step-cd ongoing">ongoing</span>}
                   <TimingPicker item={s} compact onSet={(f,v)=>setStep(s.id,f,v)}/>
+                  <StartControl item={s} compact onSet={(f,v)=>setStep(s.id,f,v)}/>
                 </div>
                 <button className="goal-btn del" onClick={()=>delStep(s.id)}>×</button>
+                <SpanLine item={s} cls="step-span"/>
               </div>
             );
           })}
@@ -1954,6 +1974,7 @@ const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
                           onClick={()=>onEdit(g.id,{steps:steps.map(x=>x.id===s.id?{...x,...togglePatch(x)}:x)})}>{periodDone(s)&&"✓"}</div>
                         <input className={`gt-title${periodDone(s)&&!ss.recurring?" struck":""}`} value={s.title} placeholder="A smaller goal…"
                           onChange={e=>onEdit(g.id,{steps:steps.map(x=>x.id===s.id?{...x,title:e.target.value}:x)})}/>
+                        {spanOf(s)?.notStarted&&<span className="gt-badge pre">starts in {spanOf(s).until}d</span>}
                         <span className={`gt-badge${ss.cls?" "+ss.cls:""}`}>{ss.label}</span>
                         <button className="goal-btn del"
                           onClick={()=>onEdit(g.id,{steps:steps.filter(x=>x.id!==s.id)})}>×</button>
@@ -2052,8 +2073,10 @@ const WeekPlanner = memo(({ goals, weekK, newId, onWeek, onEdit, onAdd, onDelete
                       placeholder="A smaller goal — pick a day to make it a daily one…"
                       onChange={e=>setStep(g,s.id,{title:e.target.value})}
                       onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addStep(g,"");}}}/>
+                    <StartControl item={s} compact onSet={(f,v)=>setStep(g,s.id,{[f]:v})}/>
                     <button className="goal-btn del" onClick={()=>delStep(g,s.id)}>×</button>
                   </div>
+                  <SpanLine item={s} cls="step-span wp-span"/>
                   <div className="wp-chips">
                     {days.map(d=>(
                       <button key={d.ymd}
