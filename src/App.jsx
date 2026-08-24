@@ -384,7 +384,18 @@ const REPORTS_KEY = "myjournal_reports";
 const REPORT_DEPTHS = [["new","New"],["deep","Deep dive"]];
 // Anything saved before this existed reads as a first look.
 const depthOf = r => r?.depth==="deep" ? "deep" : "new";
-const blankReport = (status="planned", depth="new") => ({ id:uid(), company:"", detail:"", status, depth, start:"", due:"", readOn:status==="read"?todayKey():"", createdAt:nowTs(), updatedAt:nowTs() });
+const blankReport = (status="planned", depth="new") => ({ id:uid(), company:"", notes:[], status, depth, start:"", due:"", readOn:status==="read"?todayKey():"", createdAt:nowTs(), updatedAt:nowTs() });
+
+// The old single-line "detail" becomes the first note, so anything already
+// jotted down carries over rather than disappearing.
+const migrateReport = r => {
+  if(!r || typeof r!=="object") return r;
+  const { detail, ...rest } = r;
+  let notes = Array.isArray(r.notes) ? r.notes : [];
+  if(!notes.length && typeof detail==="string" && detail.trim())
+    notes = [{ id:uid(), ts:r.updatedAt||r.createdAt||nowTs(), text:detail }];
+  return { ...rest, notes };
+};
 
 // Research runs over days — a deep dive begun Monday and finished Thursday.
 // A planned entry measures against its due date, a logged one against the day
@@ -402,7 +413,7 @@ const reportSpan = r => {
            elapsed: total===null ? null : Math.min(gone,total),
            pct: total>0 ? Math.round(Math.min(gone,total)/total*100) : (until<=0?100:0) };
 };
-const loadReports = () => { try{const r=localStorage.getItem(REPORTS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
+const loadReports = () => { try{const r=localStorage.getItem(REPORTS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d.map(migrateReport);}}catch{} return []; };
 const saveReports = r => localStorage.setItem(REPORTS_KEY, JSON.stringify(r));
 
 // The week runs Monday → Sunday, matching the Sunday weekly reflection.
@@ -1025,6 +1036,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .gw-parent{font-size:10px;color:#a8b8c8;flex-shrink:0;max-width:36%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 /* ── reports view (company research tracker) ── */
+.rp-notes{margin-top:9px;padding-top:9px;border-top:1px solid #eef4ee;}
+.reports-view .gnote{background:#f4faf5;}
+.reports-view .gnote:focus-within{border-color:#5a9a6050;}
+.reports-view .gnote-ts{color:#5a9a60;}
+.reports-view .goal-add-step{border-color:#dbeadd;color:#9dbca3;}
+.reports-view .goal-add-step:hover{border-color:#5a9a60;color:#5a9a60;background:#5a9a6008;}
 .rp-span{display:flex;align-items:center;gap:8px;margin-top:7px;}
 .rp-rows{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:-12px 0 20px;}
 .rp-rlbl{font-size:10px;color:#a8b8c8;text-transform:uppercase;letter-spacing:.9px;}
@@ -1061,9 +1078,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .rp-chip.on{background:#5a9a60;border-color:#5a9a60;color:white;}
 .rp-date{border:none;outline:none;background:#f2f8f3;border-radius:6px;padding:3px 7px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#5a9a60;cursor:pointer;}
 .rp-date::-webkit-calendar-picker-indicator{opacity:.45;cursor:pointer;}
-.rp-detail-inp{flex:1;min-width:120px;border:none;outline:none;background:transparent;border-bottom:1px solid #eef4ee;padding:2px 0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:12px;font-style:italic;color:#888;transition:border-color .2s;}
-.rp-detail-inp:focus{border-color:#5a9a60;}
-.rp-detail-inp::placeholder{color:#ccd8cc;}
 
 /* ── book notes (timestamped, inside a book card) ── */
 .bnote-list{display:flex;flex-direction:column;gap:7px;}
@@ -1281,7 +1295,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .book-fields{grid-template-columns:1fr;}
   /* Prevent iOS auto-zoom on input focus (triggered when font-size < 16px) */
   .ti,.loc-inp,.db-ta,.bf-inp,.mq-ta,.gi,.idea-title-inp,.idea-desc-ta,.bnote-ta,
-  .goal-title-inp,.gnote-ta,.step-inp,.rp-add-inp,.rp-co-inp,.rp-detail-inp,.gt-title,.wp-goal-inp,.wp-step-inp{font-size:16px;}
+  .goal-title-inp,.gnote-ta,.step-inp,.rp-add-inp,.rp-co-inp,.gt-title,.wp-goal-inp,.wp-step-inp{font-size:16px;}
   /* the date pickers stay small — they open a native picker, so no zoom risk */
   .step-date.set{width:92px;}
 }
@@ -2536,11 +2550,43 @@ const ReportSpan = memo(({ r }) => {
   );
 });
 
+const ReportNotes = memo(({ r, open, onSet }) => {
+  const notes = Array.isArray(r.notes) ? r.notes : [];
+  if(!open) return null;
+  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
+  return (
+    <div className="rp-notes">
+      <div className="gnote-list">
+        {notes.map(nt=>(
+          <div key={nt.id} className="gnote">
+            <div className="gnote-head">
+              <span className="gnote-ts">
+                {nt.ts?fmtTime(nt.ts):"earlier"}
+                {nt.ts?` · ${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric"})}`:""}
+              </span>
+              <button className="goal-btn del"
+                onClick={()=>onSet({notes:notes.filter(x=>x.id!==nt.id)})}>×</button>
+            </div>
+            <textarea className="gnote-ta" value={nt.text} placeholder="What stood out? Numbers, risks, questions…"
+              onChange={e=>{onSet({notes:notes.map(x=>x.id===nt.id?{...x,text:e.target.value}:x)});grow(e.target);}}
+              onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+          </div>
+        ))}
+      </div>
+      <button className="goal-add-step"
+        onClick={()=>onSet({notes:[...notes,{id:uid(),ts:nowTs(),text:""}]})}>
+        {notes.length===0?"+ Add a note…":`+ Add another note · ${fmtTime(nowTs())}`}
+      </button>
+    </div>
+  );
+});
+
 const ReportsView = memo(({ refreshKey }) => {
   const [reports, setReports] = useState(()=>loadReports());
   const [draft,   setDraft]   = useState("");
   const [adding,  setAdding]  = useState("new");   // depth applied to new entries
   const [filter,  setFilter]  = useState("all");
+  const [openN,   setOpenN]   = useState({});      // which cards have notes expanded
 
   useEffect(()=>setReports(loadReports()),[refreshKey]);
 
@@ -2650,8 +2696,13 @@ const ReportsView = memo(({ refreshKey }) => {
                     <button className={`rp-chip${r.due===endOfMonthYmd()?" on":""}`} onClick={()=>upd(r.id,{due:endOfMonthYmd()})}>This mo</button>
                     <input className="rp-date" type="date" value={r.due||""} title="Target date"
                       onChange={e=>upd(r.id,{due:e.target.value})}/>
+                    <button className={`rp-chip${openN[r.id]?" on":""}`} title="Notes"
+                      onClick={()=>setOpenN(o=>({...o,[r.id]:!o[r.id]}))}>
+                      ✎{(r.notes||[]).length?` ${r.notes.length}`:""}
+                    </button>
                   </div>
                   <ReportSpan r={r}/>
+                  <ReportNotes r={r} open={!!openN[r.id]} onSet={patch=>upd(r.id,patch)}/>
                 </div>
                 <button className="goal-btn del" onClick={()=>del(r.id)}>×</button>
               </div>
@@ -2683,12 +2734,15 @@ const ReportsView = memo(({ refreshKey }) => {
                     ))}
                   </span>
                   <ReportStart r={r} onSet={patch=>upd(r.id,patch)}/>
-                  <input className="rp-detail-inp" value={r.detail||""} placeholder="Notes — e.g. FY2024 10-K, key takeaway…"
-                    onChange={e=>upd(r.id,{detail:e.target.value})}/>
                   <input className="rp-date" type="date" value={r.readOn||""} title="Finished on"
                     onChange={e=>upd(r.id,{readOn:e.target.value})}/>
+                  <button className={`rp-chip${openN[r.id]?" on":""}`} title="Notes"
+                    onClick={()=>setOpenN(o=>({...o,[r.id]:!o[r.id]}))}>
+                    ✎{(r.notes||[]).length?` ${r.notes.length}`:""}
+                  </button>
                 </div>
                 <ReportSpan r={r}/>
+                <ReportNotes r={r} open={!!openN[r.id]} onSet={patch=>upd(r.id,patch)}/>
               </div>
               <button className="goal-btn del" onClick={()=>del(r.id)}>×</button>
             </div>
