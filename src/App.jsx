@@ -222,17 +222,39 @@ const periodKeyOf = t => t==="weekly" ? thisWeekKey() : t==="monthly" ? thisMont
 
 // Recurring items are ticked per period, so last week's tick doesn't mark this
 // week done. Everything else keeps a single done flag.
-const periodDone = item => {
+// `pk` overrides which period is being ticked — the week planner can show a
+// week other than the current one, and a tick there must land on that week.
+const periodDone = (item, pk) => {
   const t=timingOf(item);
-  return isRecurring(t) ? !!(item?.doneP||{})[periodKeyOf(t)] : !!item?.done;
+  return isRecurring(t) ? !!(item?.doneP||{})[pk||periodKeyOf(t)] : !!item?.done;
 };
-const togglePatch = item => {
+const togglePatch = (item, pk) => {
   const t=timingOf(item);
   if(!isRecurring(t)) return { done:!item?.done };
-  const k=periodKeyOf(t), dp={...(item?.doneP||{})};
+  const k=pk||periodKeyOf(t), dp={...(item?.doneP||{})};
   if(dp[k]) delete dp[k]; else dp[k]=true;
   return { doneP:dp };
 };
+// Step n weeks from a week key, and the seven days it covers.
+const shiftWeekKey = (k,delta) => {
+  const p=parseWeekKey(k); if(!p) return thisWeekKey();
+  const d=isoWeekStart(p.year,p.week); d.setDate(d.getDate()+delta*7);
+  const r=isoWeekOf(d); return weekKey(r.year,r.week);
+};
+const weekDays = k => {
+  const p=parseWeekKey(k); if(!p) return [];
+  const s=isoWeekStart(p.year,p.week);
+  return Array.from({length:7},(_,i)=>{
+    const d=new Date(s); d.setDate(d.getDate()+i);
+    return { ymd:dateKey(d), lbl:d.toLocaleDateString("en-US",{weekday:"short"}).slice(0,2), dom:d.getDate() };
+  });
+};
+// Dated steps first in day order, then undated ones in the order they were added.
+const orderedSteps = steps => [...(steps||[])].sort((a,b)=>{
+  const ad=DATE_RE.test(a?.target||"")?a.target:"", bd=DATE_RE.test(b?.target||"")?b.target:"";
+  if(ad&&bd) return ad.localeCompare(bd);
+  return ad ? -1 : bd ? 1 : 0;
+});
 // The last n periods, oldest first — for the little completion strip.
 const recentPeriods = (t,n=6) => {
   const out=[], now=new Date();
@@ -826,6 +848,43 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .step-week{border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#8fa8bf;cursor:pointer;max-width:120px;}
 .step-cd.ongoing{color:#4f8f68;}
 
+/* ── week planner ── */
+.wp-nav{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+.wp-arrow{width:32px;height:32px;border:1.5px solid #dde6ef;border-radius:8px;background:white;color:#5a7fa8;font-size:13px;cursor:pointer;flex-shrink:0;transition:all .2s;}
+.wp-arrow:hover{border-color:#5a7fa8;background:#f2f6fa;}
+.wp-title{flex:1;min-width:0;}
+.wp-w{font-family:'Playfair Display',serif;font-size:19px;font-weight:600;color:#1a1a1a;line-height:1.15;}
+.wp-w.now{color:#5a7fa8;}
+.wp-range{font-size:11px;color:#a8b8c8;margin-top:1px;}
+.wp-prog{font-size:11px;color:#5a7fa8;font-weight:600;flex-shrink:0;}
+.wp-days{display:flex;gap:4px;margin-bottom:16px;}
+.wp-day{flex:1;min-width:0;border-radius:8px;background:#f4f7fa;padding:6px 2px;text-align:center;transition:all .15s;}
+.wp-day.today{background:#5a7fa8;}
+.wp-day.today .wp-day-lbl,.wp-day.today .wp-day-num{color:white;}
+.wp-day-lbl{display:block;font-size:8px;text-transform:uppercase;letter-spacing:.4px;color:#a8b8c8;font-weight:600;}
+.wp-day-num{display:block;font-size:13px;color:#5a7fa8;font-weight:600;line-height:1.3;}
+.wp-day-cnt{display:block;font-size:8px;color:#8fa8bf;}
+.wp-day.today .wp-day-cnt{color:#dce7f2;}
+.wp-goal{background:white;border:1.5px solid #dde6ef;border-radius:10px;padding:13px 15px;margin-bottom:11px;}
+.wp-goal.done{opacity:.55;}
+.wp-goal-hd{display:flex;align-items:center;gap:9px;}
+.wp-goal-inp{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:'Playfair Display',serif;font-size:16px;font-weight:600;color:#1a1a1a;}
+.wp-goal-inp::placeholder{color:#ccc;font-weight:400;}
+.wp-goal-inp.struck{text-decoration:line-through;color:#aaa;}
+.wp-steps{margin-top:11px;padding-top:10px;border-top:1px solid #f0f4f8;}
+.wp-step{margin-bottom:7px;}
+.wp-step-top{display:flex;align-items:center;gap:8px;}
+.wp-step-inp{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:13px;font-weight:300;color:#1a1a1a;}
+.wp-step-inp::placeholder{color:#c5cfd8;}
+.wp-step-inp.struck{text-decoration:line-through;color:#bbb;}
+.wp-chips{display:flex;gap:3px;margin:5px 0 0 26px;}
+.wp-chip{flex:1;min-width:0;padding:3px 0;border:1.5px solid #eef2f6;border-radius:5px;background:none;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.2px;color:#c3cfdb;cursor:pointer;transition:all .15s;}
+.wp-chip:hover{border-color:#5a7fa8;color:#5a7fa8;}
+.wp-chip.on{background:#5a7fa8;border-color:#5a7fa8;color:white;}
+.wp-chip.today-c:not(.on){border-color:#c8d8e8;color:#8fa8bf;}
+.wp-also{margin-top:22px;}
+.wp-also-hd{font-size:10px;color:#a8b8c8;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:8px;}
+
 /* ── recurring period strip ── */
 .pstrip{display:flex;gap:4px;margin-top:9px;flex-wrap:wrap;}
 .pdot{width:34px;height:30px;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:10px;cursor:pointer;background:#f0f4f8;color:#c3cfdb;transition:all .15s;}
@@ -1124,7 +1183,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .book-fields{grid-template-columns:1fr;}
   /* Prevent iOS auto-zoom on input focus (triggered when font-size < 16px) */
   .ti,.loc-inp,.db-ta,.bf-inp,.mq-ta,.gi,.idea-title-inp,.idea-desc-ta,.bnote-ta,
-  .goal-title-inp,.goal-why,.step-inp,.rp-add-inp,.rp-co-inp,.rp-detail-inp,.gt-title{font-size:16px;}
+  .goal-title-inp,.goal-why,.step-inp,.rp-add-inp,.rp-co-inp,.rp-detail-inp,.gt-title,.wp-goal-inp,.wp-step-inp{font-size:16px;}
   /* the date pickers stay small — they open a native picker, so no zoom risk */
   .step-date.set{width:92px;}
 }
@@ -1841,6 +1900,135 @@ const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
   );
 });
 
+// ─── WeekPlanner (plan one week at a time) ────────────────────────────────────
+// Goals scoped to the shown week, each breakable into smaller goals; give a
+// smaller goal a day and it becomes that day's goal. Recurring weekly goals and
+// anything dated inside the week are listed too, so the week is complete.
+const WeekPlanner = memo(({ goals, weekK, newId, onWeek, onEdit, onAdd, onDelete }) => {
+  const p       = parseWeekKey(weekK) || parseWeekKey(thisWeekKey());
+  const days    = weekDays(weekK);
+  const today   = todayKey();
+  const isNow   = weekK === thisWeekKey();
+  const cy      = isoWeekOf(new Date()).year;
+  const dayIn   = days.some(d=>d.ymd===today) ? today : days[0]?.ymd || "";
+
+  const mine  = goals.filter(g=>timingOf(g)==="week" && (g.week||"")===weekK);
+  // Ticked against the shown week, not whatever week it is today.
+  const recur = goals.filter(g=>timingOf(g)==="weekly");
+  const dated = goals.filter(g=>timingOf(g)!=="week" && !isRecurring(timingOf(g)) && effWeekKey(g)===weekK);
+
+  const total = mine.reduce((n,g)=>n+1+(g.steps||[]).filter(s=>s.title?.trim()).length,0);
+  const done  = mine.reduce((n,g)=>n+(periodDone(g)?1:0)
+                  +(g.steps||[]).filter(s=>s.title?.trim()&&periodDone(s)).length,0);
+
+  const setStep = (g,id,patch)=>onEdit(g.id,{steps:(g.steps||[]).map(s=>s.id===id?{...s,...patch}:s)});
+  const addStep = (g,ymd)=>onEdit(g.id,{steps:[...(g.steps||[]),{...blankStep(),target:ymd||""}]});
+  const delStep = (g,id)=>onEdit(g.id,{steps:(g.steps||[]).filter(s=>s.id!==id)});
+
+  // How many daily goals sit on each day of this week, and how many are done.
+  const perDay = {};
+  mine.forEach(g=>(g.steps||[]).forEach(s=>{
+    if(!s.title?.trim()||!DATE_RE.test(s.target||"")) return;
+    (perDay[s.target] ||= {n:0,d:0}).n++;
+    if(periodDone(s)) perDay[s.target].d++;
+  }));
+
+  return (
+    <div>
+      <div className="wp-nav">
+        <button className="wp-arrow" onClick={()=>onWeek(shiftWeekKey(weekK,-1))} title="Previous week">◀</button>
+        <div className="wp-title">
+          <div className={`wp-w${isNow?" now":""}`}>W{p.week}{p.year!==cy?` · ${p.year}`:""}{isNow?" · this week":""}</div>
+          <div className="wp-range">{weekRangeLabel(weekK)}</div>
+        </div>
+        {total>0&&<span className="wp-prog">{done}/{total}</span>}
+        <button className="wp-arrow" onClick={()=>onWeek(shiftWeekKey(weekK,1))} title="Next week">▶</button>
+      </div>
+
+      {!isNow&&(
+        <button className="gv-sort-btn" style={{marginBottom:14}} onClick={()=>onWeek(thisWeekKey())}>← Back to this week</button>
+      )}
+
+      <div className="wp-days">
+        {days.map(d=>{
+          const c=perDay[d.ymd];
+          return (
+            <div key={d.ymd} className={`wp-day${d.ymd===today?" today":""}`}>
+              <span className="wp-day-lbl">{d.lbl}</span>
+              <span className="wp-day-num">{d.dom}</span>
+              <span className="wp-day-cnt">{c?`${c.d}/${c.n}`:"·"}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {mine.map(g=>{
+        const steps=orderedSteps(g.steps);
+        return (
+          <div key={g.id} className={`wp-goal${periodDone(g)?" done":""}`}>
+            <div className="wp-goal-hd">
+              <div className={`ck${periodDone(g)?" done":""}`} onClick={()=>onEdit(g.id,togglePatch(g))}>{periodDone(g)&&"✓"}</div>
+              <input className={`wp-goal-inp${periodDone(g)?" struck":""}`} value={g.title} autoFocus={g.id===newId}
+                placeholder={`A goal for W${p.week}…`} onChange={e=>onEdit(g.id,{title:e.target.value})}/>
+              <button className="goal-btn del" onClick={()=>onDelete(g.id)} title="Delete goal">×</button>
+            </div>
+            <div className="wp-steps">
+              {steps.map(s=>(
+                <div key={s.id} className="wp-step">
+                  <div className="wp-step-top">
+                    <div className={`ck${periodDone(s)?" done":""}`}
+                      onClick={()=>setStep(g,s.id,togglePatch(s))}>{periodDone(s)&&"✓"}</div>
+                    <input className={`wp-step-inp${periodDone(s)?" struck":""}`} value={s.title}
+                      placeholder="A smaller goal — pick a day to make it a daily one…"
+                      onChange={e=>setStep(g,s.id,{title:e.target.value})}
+                      onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addStep(g,"");}}}/>
+                    <button className="goal-btn del" onClick={()=>delStep(g,s.id)}>×</button>
+                  </div>
+                  <div className="wp-chips">
+                    {days.map(d=>(
+                      <button key={d.ymd}
+                        className={`wp-chip${s.target===d.ymd?" on":""}${d.ymd===today?" today-c":""}`}
+                        title={s.target===d.ymd?"Remove the day":`Make this ${d.lbl}'s goal`}
+                        onClick={()=>setStep(g,s.id, s.target===d.ymd ? {target:""} : {timing:"date",target:d.ymd})}>
+                        {d.lbl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <button className="goal-add-step" onClick={()=>addStep(g,"")}>+ Smaller goal</button>
+              <button className="goal-add-step" style={{marginTop:5}} onClick={()=>addStep(g,dayIn)}>+ Daily goal</button>
+            </div>
+          </div>
+        );
+      })}
+
+      <button className="add-row" onClick={()=>onAdd(weekK)}>+ Add a goal for W{p.week}</button>
+
+      {(recur.length>0||dated.length>0)&&(
+        <div className="wp-also">
+          <div className="wp-also-hd">Also this week</div>
+          {recur.map(g=>(
+            <div key={g.id} className="gw-item">
+              <div className={`ck${periodDone(g,weekK)?" done":""}`}
+                onClick={()=>onEdit(g.id,togglePatch(g,weekK))}>{periodDone(g,weekK)&&"✓"}</div>
+              <span className={`gw-txt${periodDone(g,weekK)?" struck":""}`}>{g.title||<em style={{color:"#ccc"}}>Untitled</em>}</span>
+              <span className="gw-parent">every week</span>
+            </div>
+          ))}
+          {dated.map(g=>(
+            <div key={g.id} className="gw-item">
+              <div className={`ck${periodDone(g)?" done":""}`} onClick={()=>onEdit(g.id,togglePatch(g))}>{periodDone(g)&&"✓"}</div>
+              <span className={`gw-txt${periodDone(g)?" struck":""}`}>{g.title||<em style={{color:"#ccc"}}>Untitled</em>}</span>
+              <span className="gw-parent">{schedOf(g).label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
 // ─── GoalPeriods (the year broken into weeks or months) ───────────────────────
 // Recurring goals are pinned at the top rather than repeated into every period,
 // which would bury the one-off goals. Everything else groups by the period it
@@ -1957,6 +2145,9 @@ const GoalsView = memo(({ refreshKey }) => {
   const [goals,     setGoals]     = useState(()=>loadGoals());
   const [sort,      setSort]      = useState("mine");
   const [view,      setView]      = useState("list");
+  const [weekK,     setWeekK]     = useState(()=>thisWeekKey());
+  const [wkMode,    setWkMode]    = useState("plan");
+  const [newId,     setNewId]     = useState(null);
   const [collapsed, setCollapsed] = useState({});
 
   useEffect(()=>setGoals(loadGoals()),[refreshKey]);
@@ -1972,6 +2163,13 @@ const GoalsView = memo(({ refreshKey }) => {
     const g=blankGoal();
     persist([g,...loadGoals()]);
     setCollapsed(c=>({...c,[g.id]:false}));
+  },[persist]);
+
+  // A goal created from the week planner is scoped to the week on screen.
+  const addWeekGoal = useCallback(wk=>{
+    const g={...blankGoal(), timing:"week", week:wk};
+    persist([g,...loadGoals()]);
+    setNewId(g.id);
   },[persist]);
 
   const delGoal = useCallback(id=>persist(loadGoals().filter(g=>g.id!==id)),[persist]);
@@ -2099,7 +2297,18 @@ const GoalsView = memo(({ refreshKey }) => {
         <GoalTree goals={goals} onCommit={commitDrag} onEdit={editGoal} onDelete={delGoal}/>
       )}
 
-      {view==="weeks" &&<GoalPeriods goals={goals} unit="week"  onEdit={editGoal}/>}
+      {view==="weeks"&&(
+        <>
+          <div className="gv-sort">
+            <button className={`gv-sort-btn${wkMode==="plan"?" active":""}`} onClick={()=>setWkMode("plan")}>Plan a week</button>
+            <button className={`gv-sort-btn${wkMode==="all"?" active":""}`}  onClick={()=>setWkMode("all")}>All weeks</button>
+          </div>
+          {wkMode==="plan"
+            ?<WeekPlanner goals={goals} weekK={weekK} newId={newId} onWeek={setWeekK}
+               onEdit={editGoal} onAdd={addWeekGoal} onDelete={delGoal}/>
+            :<GoalPeriods goals={goals} unit="week" onEdit={editGoal}/>}
+        </>
+      )}
       {view==="months"&&<GoalPeriods goals={goals} unit="month" onEdit={editGoal}/>}
     </div>
   );
