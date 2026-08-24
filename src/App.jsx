@@ -381,7 +381,10 @@ const saveIdeas  = ideas => localStorage.setItem(IDEAS_KEY, JSON.stringify(ideas
 
 // ─── Annual report tracker helpers ────────────────────────────────────────────
 const REPORTS_KEY = "myjournal_reports";
-const blankReport = (status="planned") => ({ id:uid(), company:"", detail:"", status, due:"", readOn:status==="read"?todayKey():"", createdAt:nowTs(), updatedAt:nowTs() });
+const REPORT_DEPTHS = [["new","New"],["deep","Deep dive"]];
+// Anything saved before this existed reads as a first look.
+const depthOf = r => r?.depth==="deep" ? "deep" : "new";
+const blankReport = (status="planned", depth="new") => ({ id:uid(), company:"", detail:"", status, depth, due:"", readOn:status==="read"?todayKey():"", createdAt:nowTs(), updatedAt:nowTs() });
 const loadReports = () => { try{const r=localStorage.getItem(REPORTS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
 const saveReports = r => localStorage.setItem(REPORTS_KEY, JSON.stringify(r));
 
@@ -1004,7 +1007,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .gw-txt.struck{text-decoration:line-through;color:#bbb;}
 .gw-parent{font-size:10px;color:#a8b8c8;flex-shrink:0;max-width:36%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
-/* ── reports view (annual report tracker) ── */
+/* ── reports view (company research tracker) ── */
+.rp-rows{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:-12px 0 20px;}
+.rp-rlbl{font-size:10px;color:#a8b8c8;text-transform:uppercase;letter-spacing:.9px;}
+.rp-depth{display:inline-flex;border:1.5px solid #e2ece3;border-radius:20px;overflow:hidden;flex-shrink:0;}
+.rp-depth button{border:none;background:none;padding:2px 10px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;color:#8aa890;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.rp-depth button+button{border-left:1.5px solid #e2ece3;}
+.rp-depth button:hover:not(.on){background:#f2f8f3;color:#5a9a60;}
+.rp-depth button.on{background:#5a9a60;color:white;}
+.rp-depth button.on.deep{background:#4a6fa5;}
+
 .reports-view{padding:28px 52px 80px;max-width:760px;}
 .rp-add{display:flex;gap:7px;margin-bottom:24px;flex-wrap:wrap;}
 .rp-add-inp{flex:1;min-width:150px;border:1.5px solid #e0d8cc;border-radius:8px;background:white;padding:10px 13px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:14px;color:#1a1a1a;outline:none;transition:border-color .2s;}
@@ -2470,6 +2482,8 @@ const RPT_BUCKETS = [
 const ReportsView = memo(({ refreshKey }) => {
   const [reports, setReports] = useState(()=>loadReports());
   const [draft,   setDraft]   = useState("");
+  const [adding,  setAdding]  = useState("new");   // depth applied to new entries
+  const [filter,  setFilter]  = useState("all");
 
   useEffect(()=>setReports(loadReports()),[refreshKey]);
 
@@ -2479,7 +2493,7 @@ const ReportsView = memo(({ refreshKey }) => {
   // Enter / "Read today" logs it as read now; "Plan" queues it for this week.
   const add = status=>{
     const company=draft.trim(); if(!company) return;
-    const base={...blankReport(status), company};
+    const base={...blankReport(status, adding), company};
     if(status==="planned") base.due=endOfWeekYmd();
     persist([base, ...loadReports()]);
     setDraft("");
@@ -2487,26 +2501,36 @@ const ReportsView = memo(({ refreshKey }) => {
   const upd = (id,patch)=>persist(loadReports().map(r=>r.id===id?stamp({...r,...patch}):r));
   const del = id=>persist(loadReports().filter(r=>r.id!==id));
 
-  const planned = reports.filter(r=>r.status==="planned");
-  const readLog = [...reports.filter(r=>r.status==="read")]
+  const shown   = filter==="all" ? reports : reports.filter(r=>depthOf(r)===filter);
+  const newN    = reports.filter(r=>depthOf(r)==="new").length;
+  const deepN   = reports.filter(r=>depthOf(r)==="deep").length;
+  const planned = shown.filter(r=>r.status==="planned");
+  const readLog = [...shown.filter(r=>r.status==="read")]
     .sort((a,b)=>(b.readOn||"").localeCompare(a.readOn||"")||(Number(b.updatedAt)||0)-(Number(a.updatedAt)||0));
   const byBucket  = k=>planned.filter(r=>reportBucket(r.due)===k)
     .sort((a,b)=>(a.due||"9999").localeCompare(b.due||"9999"));
   const readDates = [...new Set(readLog.map(r=>r.readOn||""))];
   const sow       = startOfWeekYmd();
-  const thisWeek  = readLog.filter(r=>r.readOn&&r.readOn>=sow).length;
-  const overdue   = byBucket("overdue").length;
+  // Counted across everything, not the filtered slice, so narrowing the view
+  // doesn't appear to change how much research you've actually done.
+  const allRead    = reports.filter(r=>r.status==="read");
+  const allPlanned = reports.filter(r=>r.status==="planned");
+  const thisWeek   = allRead.filter(r=>r.readOn&&r.readOn>=sow).length;
+  const overdue    = allPlanned.filter(r=>reportBucket(r.due)==="overdue").length;
+  const filtered   = filter!=="all";
 
   return (
     <div className="reports-view">
-      <div className="eyebrow">Annual Reports</div>
-      <h1 className="pg-title">Report <em>Reading</em></h1>
+      <div className="eyebrow">Companies</div>
+      <h1 className="pg-title">Company <em>Research</em></h1>
       <p style={{fontSize:13,color:"#aaa",fontWeight:300,marginTop:6,marginBottom:6}}>
-        Log the annual report you read each day, and queue what to read next — today, this week, or this month.
+        Log the companies you look at each day, marked as a first look or a deep dive, and queue what to research next.
       </p>
-      {(readLog.length>0||planned.length>0)&&(
+      {reports.length>0&&(
         <p style={{fontSize:12,color:overdue?"#c05050":"#5a9a60",marginBottom:18}}>
-          {readLog.length} read · {thisWeek} this week · {planned.length} planned{overdue?` · ${overdue} overdue`:""}
+          {allRead.length} researched · {thisWeek} this week · {allPlanned.length} planned
+          {newN?` · ${newN} new`:""}{deepN?` · ${deepN} deep ${deepN===1?"dive":"dives"}`:""}
+          {overdue?` · ${overdue} overdue`:""}
         </p>
       )}
 
@@ -2514,12 +2538,35 @@ const ReportsView = memo(({ refreshKey }) => {
         <input className="rp-add-inp" value={draft} placeholder="Company — e.g. Apple (AAPL)"
           onChange={e=>setDraft(e.target.value)}
           onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();add("read");}}}/>
-        <button className="rp-btn solid" onClick={()=>add("read")} title="Log it as read today">✓ Read today</button>
-        <button className="rp-btn" onClick={()=>add("planned")} title="Queue it to read later">+ Plan</button>
+        <button className="rp-btn solid" onClick={()=>add("read")} title="Log it as researched today">✓ Did today</button>
+        <button className="rp-btn" onClick={()=>add("planned")} title="Queue it to research later">+ Plan</button>
       </div>
 
-      <div className="rp-sec-hd">Reading Plan</div>
-      {planned.length===0&&<div className="rv-no-notes" style={{marginTop:8}}>Nothing queued. Type a company above and hit "+ Plan".</div>}
+      <div className="rp-rows">
+        <span className="rp-rlbl">Add as</span>
+        <span className="rp-depth">
+          {REPORT_DEPTHS.map(([k,l])=>(
+            <button key={k} className={`${adding===k?"on":""}${k==="deep"?" deep":""}`}
+              onClick={()=>setAdding(k)}>{l}</button>
+          ))}
+        </span>
+        {(newN>0||deepN>0)&&<>
+          <span className="rp-rlbl" style={{marginLeft:8}}>Show</span>
+          <span className="rp-depth">
+            <button className={filter==="all"?"on":""} onClick={()=>setFilter("all")}>All</button>
+            {REPORT_DEPTHS.map(([k,l])=>(
+              <button key={k} className={`${filter===k?"on":""}${k==="deep"?" deep":""}`}
+                onClick={()=>setFilter(k)}>{l}</button>
+            ))}
+          </span>
+        </>}
+      </div>
+
+      <div className="rp-sec-hd">Research Plan</div>
+      {planned.length===0&&<div className="rv-no-notes" style={{marginTop:8}}>
+        {filtered&&allPlanned.length>0 ? "No planned companies match this filter."
+          : 'Nothing queued. Type a company above and hit "+ Plan".'}
+      </div>}
       {RPT_BUCKETS.map(b=>{
         const list=byBucket(b.key);
         if(!list.length) return null;
@@ -2528,11 +2575,18 @@ const ReportsView = memo(({ refreshKey }) => {
             <div className={`rp-bucket${b.key==="overdue"?" over":""}`}>{b.label}</div>
             {list.map(r=>(
               <div key={r.id} className="rp-card">
-                <div className="ck" onClick={()=>upd(r.id,{status:"read",readOn:todayKey()})} title="Mark as read today"/>
+                <div className="ck" onClick={()=>upd(r.id,{status:"read",readOn:todayKey()})} title="Log as researched today"/>
                 <div className="rp-card-main">
                   <input className="rp-co-inp" value={r.company} placeholder="Company…"
                     onChange={e=>upd(r.id,{company:e.target.value})}/>
                   <div className="rp-meta">
+                    <span className="rp-depth">
+                      {REPORT_DEPTHS.map(([k,l])=>(
+                        <button key={k} className={`${depthOf(r)===k?"on":""}${k==="deep"?" deep":""}`}
+                          title={k==="new"?"A first look at this company":"A thorough dig into this company"}
+                          onClick={()=>upd(r.id,{depth:k})}>{l}</button>
+                      ))}
+                    </span>
                     <button className={`rp-chip${r.due===todayKey()?" on":""}`} onClick={()=>upd(r.id,{due:todayKey()})}>Today</button>
                     <button className={`rp-chip${r.due===endOfWeekYmd()?" on":""}`} onClick={()=>upd(r.id,{due:endOfWeekYmd()})}>This wk</button>
                     <button className={`rp-chip${r.due===endOfMonthYmd()?" on":""}`} onClick={()=>upd(r.id,{due:endOfMonthYmd()})}>This mo</button>
@@ -2547,18 +2601,28 @@ const ReportsView = memo(({ refreshKey }) => {
         );
       })}
 
-      <div className="rp-sec-hd" style={{marginTop:30}}>Read Log</div>
-      {readLog.length===0&&<div className="rv-no-notes" style={{marginTop:8}}>No reports logged yet. Type a company above and hit "✓ Read today".</div>}
+      <div className="rp-sec-hd" style={{marginTop:30}}>Research Log</div>
+      {readLog.length===0&&<div className="rv-no-notes" style={{marginTop:8}}>
+        {filtered&&allRead.length>0 ? "No logged companies match this filter."
+          : 'Nothing logged yet. Type a company above and hit "✓ Did today".'}
+      </div>}
       {readDates.map(d=>(
         <div key={d||"undated"}>
           <div className="rp-bucket">{d?fmtDate(d,{weekday:"short",month:"long",day:"numeric",year:"numeric"}):"Undated"}</div>
           {readLog.filter(r=>(r.readOn||"")===d).map(r=>(
             <div key={r.id} className="rp-card read">
-              <div className="ck done" onClick={()=>upd(r.id,{status:"planned",readOn:""})} title="Not read after all — move back to the plan">✓</div>
+              <div className="ck done" onClick={()=>upd(r.id,{status:"planned",readOn:""})} title="Move back to the plan">✓</div>
               <div className="rp-card-main">
                 <input className="rp-co-inp" value={r.company} placeholder="Company…"
                   onChange={e=>upd(r.id,{company:e.target.value})}/>
                 <div className="rp-meta">
+                  <span className="rp-depth">
+                    {REPORT_DEPTHS.map(([k,l])=>(
+                      <button key={k} className={`${depthOf(r)===k?"on":""}${k==="deep"?" deep":""}`}
+                        title={k==="new"?"A first look at this company":"A thorough dig into this company"}
+                        onClick={()=>upd(r.id,{depth:k})}>{l}</button>
+                    ))}
+                  </span>
                   <input className="rp-detail-inp" value={r.detail||""} placeholder="Notes — e.g. FY2024 10-K, key takeaway…"
                     onChange={e=>upd(r.id,{detail:e.target.value})}/>
                   <input className="rp-date" type="date" value={r.readOn||""} title="Date read"
@@ -3229,7 +3293,7 @@ const NAVS = [
   {key:"goals",  icon:"◈",  label:"Goals"},
   {key:"ideas",  icon:"✧",  label:"Ideas"},
   {key:"reading",icon:"❧",  label:"Books"},
-  {key:"reports",icon:"▤",  label:"Reports"},
+  {key:"reports",icon:"▤",  label:"Research"},
   {key:"month",  icon:"◫",  label:"Month"},
   {key:"search", icon:"⌕",  label:"Search"},
   {key:"habits", icon:"◐",  label:"Habits"},
