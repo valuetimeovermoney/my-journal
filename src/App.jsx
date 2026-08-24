@@ -116,9 +116,19 @@ const saveHabits  = h => localStorage.setItem(HABITS_KEY, JSON.stringify(h));
 
 // ─── Goals helpers ────────────────────────────────────────────────────────────
 const GOALS_KEY  = "myjournal_goals";
-const blankGoal  = () => ({ id:uid(), title:"", why:"", start:"", target:"", week:"", month:"", timing:"date", done:false, doneP:{}, createdAt:nowTs(), updatedAt:nowTs(), steps:[] });
+const blankGoal  = () => ({ id:uid(), title:"", notes:[], start:"", target:"", week:"", month:"", timing:"date", done:false, doneP:{}, createdAt:nowTs(), updatedAt:nowTs(), steps:[] });
 const blankStep  = () => ({ id:uid(), title:"", start:"", target:"", week:"", month:"", timing:"date", done:false, doneP:{} });
-const loadGoals  = () => { try{const r=localStorage.getItem(GOALS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
+// The old single "why does this matter" field becomes the first note, so
+// anything already written carries over instead of disappearing.
+const migrateGoal = g => {
+  if(!g || typeof g!=="object") return g;
+  const { why, ...rest } = g;
+  let notes = Array.isArray(g.notes) ? g.notes : [];
+  if(!notes.length && typeof why==="string" && why.trim())
+    notes = [{ id:uid(), ts:g.createdAt||nowTs(), text:why }];
+  return { ...rest, notes };
+};
+const loadGoals  = () => { try{const r=localStorage.getItem(GOALS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d.map(migrateGoal);}}catch{} return []; };
 const saveGoals  = g => localStorage.setItem(GOALS_KEY, JSON.stringify(g));
 
 // Goals and reports are edited constantly (ticking things off), so a union by
@@ -853,8 +863,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .goal-prog-fill{height:100%;background:#5a7fa8;border-radius:3px;transition:width .3s;}
 .goal-prog-lbl{font-size:10px;color:#a8b8c8;flex-shrink:0;}
 .goal-body{margin-top:13px;padding-top:12px;border-top:1px solid #f0f4f8;}
-.goal-why{width:100%;border:none;outline:none;background:transparent;resize:none;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:13px;font-weight:300;line-height:1.7;color:#666;min-height:32px;margin-bottom:12px;}
-.goal-why::placeholder{color:#ccc;}
 .goal-sec-lbl{font-size:10px;color:#a8b8c8;text-transform:uppercase;letter-spacing:1px;margin-bottom:7px;}
 .step-row{display:flex;align-items:center;gap:9px;background:#f7fafc;border-radius:7px;padding:7px 10px;margin-bottom:5px;flex-wrap:wrap;}
 .step-span{flex:0 0 100%;display:flex;align-items:center;gap:7px;margin:1px 0 0 27px;}
@@ -879,8 +887,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .goal-week{border:none;outline:none;background:#f2f6fa;border-radius:6px;padding:4px 7px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:12px;color:#5a7fa8;cursor:pointer;max-width:190px;}
 .goal-cd.ongoing{background:#eaf3ee;color:#4f8f68;}
 .step-sched{display:flex;align-items:center;gap:5px;margin-left:auto;flex-shrink:0;}
-.step-tim{border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#8fa8bf;cursor:pointer;}
-.step-week{border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#8fa8bf;cursor:pointer;max-width:120px;}
 .step-cd.ongoing{color:#4f8f68;}
 
 /* ── start date / span ── */
@@ -914,6 +920,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .wp-day.today .wp-day-cnt{color:#dce7f2;}
 .wp-goal{background:white;border:1.5px solid #dde6ef;border-radius:10px;padding:13px 15px;margin-bottom:11px;}
 .wp-goal.done{opacity:.55;}
+.wp-goal.gt-drop-into{border-color:#5a7fa8;background:#eef4fa;}
+.wp-step.gt-drop-into{background:#eef4fa;border-radius:7px;}
+.wp-step{border:1.5px solid transparent;}
 .wp-goal-hd{display:flex;align-items:center;gap:9px;}
 .wp-goal-inp{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:'Playfair Display',serif;font-size:16px;font-weight:600;color:#1a1a1a;}
 .wp-goal-inp::placeholder{color:#ccc;font-weight:400;}
@@ -931,6 +940,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .wp-chip.today-c:not(.on){border-color:#c8d8e8;color:#8fa8bf;}
 .wp-also{margin-top:22px;}
 .wp-also-hd{font-size:10px;color:#a8b8c8;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:8px;}
+
+/* ── goal notes ── */
+.gnote-list{display:flex;flex-direction:column;gap:7px;}
+.gnote{background:#f7fafc;border-radius:8px;border:1.5px solid transparent;padding:7px 12px 9px;transition:border-color .2s;}
+.gnote:focus-within{border-color:#5a7fa850;}
+.gnote-head{display:flex;align-items:center;justify-content:space-between;}
+.gnote-ts{font-size:10px;color:#5a7fa8;font-weight:500;letter-spacing:.3px;}
+.gnote-ta{width:100%;border:none;outline:none;background:transparent;resize:none;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:14px;font-weight:300;line-height:1.7;color:#1a1a1a;min-height:40px;}
+.gnote-ta::placeholder{color:#c3cfdb;}
+.step-dlbl{font-size:9px;color:#b8c6d4;text-transform:uppercase;letter-spacing:.5px;flex-shrink:0;}
+.step-cd.legacy{border:1.5px solid #dde6ef;border-radius:20px;background:none;padding:2px 8px;color:#8fa8bf;cursor:pointer;font-size:10px;transition:all .2s;}
+.step-cd.legacy:hover{border-color:#5a7fa8;color:#5a7fa8;}
 
 /* ── recurring period strip ── */
 .pstrip{display:flex;gap:4px;margin-top:9px;flex-wrap:wrap;}
@@ -1230,7 +1251,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .book-fields{grid-template-columns:1fr;}
   /* Prevent iOS auto-zoom on input focus (triggered when font-size < 16px) */
   .ti,.loc-inp,.db-ta,.bf-inp,.mq-ta,.gi,.idea-title-inp,.idea-desc-ta,.bnote-ta,
-  .goal-title-inp,.goal-why,.step-inp,.rp-add-inp,.rp-co-inp,.rp-detail-inp,.gt-title,.wp-goal-inp,.wp-step-inp{font-size:16px;}
+  .goal-title-inp,.gnote-ta,.step-inp,.rp-add-inp,.rp-co-inp,.rp-detail-inp,.gt-title,.wp-goal-inp,.wp-step-inp{font-size:16px;}
   /* the date pickers stay small — they open a native picker, so no zoom risk */
   .step-date.set{width:92px;}
 }
@@ -1750,22 +1771,9 @@ const TimingSelect = ({ cls, value, onChange }) => (
   </select>
 );
 
-const TimingPicker = memo(({ item, onSet, compact }) => {
+const TimingPicker = memo(({ item, onSet }) => {
   const t = timingOf(item);
   const set = f => e => onSet(f, e.target.value);
-  if(compact) return (
-    <>
-      <TimingSelect cls="step-tim" value={t} onChange={set("timing")}/>
-      {t==="date" &&<input className={`step-date${item.target?" set":""}`} type="date" value={item.target||""}
-        title="Target date" onChange={set("target")}/>}
-      {t==="month"&&<input className="step-week" type="month" value={item.month||""}
-        title="Target month" onChange={set("month")}/>}
-      {t==="week" &&<select className="step-week" value={item.week||""} title="Target week" onChange={set("week")}>
-        <option value="">Week…</option>
-        {weekOptions().map(o=><option key={o.key} value={o.key}>{o.label}</option>)}
-      </select>}
-    </>
-  );
   return (
     <>
       <TimingSelect cls="goal-week tim-sel" value={t} onChange={set("timing")}/>
@@ -1808,7 +1816,13 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
   const gDone = periodDone(goal);
   const pct   = real.length ? Math.round(done/real.length*100) : (gDone?100:0);
 
-  const setStep = (id,f,v)=>set("steps",steps.map(s=>s.id===id?{...s,[f]:v}:s));
+  const notes   = Array.isArray(goal.notes)?goal.notes:[];
+  const addNote = ()=>set("notes",[...notes,{id:uid(),ts:nowTs(),text:""}]);
+  const updNote = (id,text)=>set("notes",notes.map(x=>x.id===id?{...x,text}:x));
+  const delNote = id=>set("notes",notes.filter(x=>x.id!==id));
+
+  const setStep  = (id,f,v)=>set("steps",steps.map(s=>s.id===id?{...s,[f]:v}:s));
+  const patchStep= (id,patch)=>set("steps",steps.map(s=>s.id===id?{...s,...patch}:s));
   const addStep = ()=>set("steps",[...steps,blankStep()]);
   const delStep = id=>set("steps",steps.filter(s=>s.id!==id));
 
@@ -1828,9 +1842,9 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
       </div>
 
       <div className="goal-meta">
+        <StartControl item={goal} onSet={set}/>
         <TimingPicker item={goal} onSet={set}/>
         <span className={`goal-cd${sched.cls?" "+sched.cls:""}`}>{sched.label}</span>
-        <StartControl item={goal} onSet={set}/>
         {real.length>0&&<>
           <div className="goal-prog"><div className="goal-prog-fill" style={{width:`${pct}%`}}/></div>
           <span className="goal-prog-lbl">{done}/{real.length}</span>
@@ -1844,25 +1858,31 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
 
       {!collapsed&&(
         <div className="goal-body">
-          <textarea className="goal-why" value={goal.why||""} placeholder="Why does this matter? What does done look like?"
-            onChange={e=>{set("why",e.target.value);grow(e.target);}}
-            onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
           <div className="goal-sec-lbl">Smaller goals</div>
           {steps.map(s=>{
             const ss=schedOf(s);
             return (
               <div key={s.id} className="step-row">
                 <div className={`ck${periodDone(s)?" done":""}`}
-                  onClick={()=>{const pt=togglePatch(s);Object.entries(pt).forEach(([f,v])=>setStep(s.id,f,v));}}>{periodDone(s)&&"✓"}</div>
+                  onClick={()=>patchStep(s.id,togglePatch(s))}>{periodDone(s)&&"✓"}</div>
                 <input className={`step-inp${periodDone(s)&&!ss.recurring?" struck":""}`} value={s.title} placeholder="A step toward it…"
                   onChange={e=>setStep(s.id,"title",e.target.value)}
                   onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addStep();}}}/>
                 <div className="step-sched">
-                  {ss.recurring&&<span className="step-cd recur">{ss.timing==="weekly"?"wkly":"mthly"}</span>}
-                  {!periodDone(s)&&!ss.recurring&&ss.days!==null&&<span className={`step-cd${ss.days<0?" over":""}`}>{fmtCountdown(ss.days)}</span>}
-                  {ss.timing==="ongoing"&&<span className="step-cd ongoing">ongoing</span>}
-                  <TimingPicker item={s} compact onSet={(f,v)=>setStep(s.id,f,v)}/>
-                  <StartControl item={s} compact onSet={(f,v)=>setStep(s.id,f,v)}/>
+                  {timingOf(s)!=="date"&&(
+                    <button className="step-cd legacy" title={`Timed "${ss.label}" — tap to switch to plain dates`}
+                      onClick={()=>patchStep(s.id,{timing:"date",target:schedEndYmd(s),week:"",month:"",doneP:{}})}>
+                      {ss.label} ×
+                    </button>
+                  )}
+                  {!periodDone(s)&&!ss.recurring&&ss.days!==null&&
+                    <span className={`step-cd${ss.days<0?" over":""}`}>{fmtCountdown(ss.days)}</span>}
+                  <span className="step-dlbl">start</span>
+                  <input className={`step-date${s.start?" set":""}`} type="date" value={s.start||""}
+                    title="Start date" onChange={e=>setStep(s.id,"start",e.target.value)}/>
+                  <span className="step-dlbl">due</span>
+                  <input className={`step-date${s.target?" set":""}`} type="date" value={s.target||""}
+                    title="Due date" onChange={e=>setStep(s.id,"target",e.target.value)}/>
                 </div>
                 <button className="goal-btn del" onClick={()=>delStep(s.id)}>×</button>
                 <SpanLine item={s} cls="step-span"/>
@@ -1870,24 +1890,41 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
             );
           })}
           <button className="goal-add-step" onClick={addStep}>+ Add a smaller goal</button>
+
+          <div className="goal-sec-lbl" style={{marginTop:16}}>Notes</div>
+          <div className="gnote-list">
+            {notes.map(nt=>(
+              <div key={nt.id} className="gnote">
+                <div className="gnote-head">
+                  <span className="gnote-ts">{nt.ts?fmtTime(nt.ts):"earlier"}{nt.ts?` · ${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric"})}`:""}</span>
+                  <button className="goal-btn del" onClick={()=>delNote(nt.id)}>×</button>
+                </div>
+                <textarea className="gnote-ta" value={nt.text} placeholder="A note on this goal…"
+                  onChange={e=>{updNote(nt.id,e.target.value);grow(e.target);}}
+                  onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+              </div>
+            ))}
+          </div>
+          <button className="goal-add-step" onClick={addNote}>
+            {notes.length===0?"+ Add a note…":`+ Add another note · ${fmtTime(nowTs())}`}
+          </button>
         </div>
       )}
     </div>
   );
 });
 
-// ─── GoalTree ─────────────────────────────────────────────────────────────────
-// Big goals branch into smaller ones, reorderable by dragging the grip. Uses
-// pointer events rather than HTML5 drag-and-drop, which does not fire on touch
-// screens — so this works the same with a finger as with a mouse.
-const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
+// Pointer-based drag reordering, shared by the tree and the week planner so the
+// two behave identically. Pointer events rather than HTML5 drag-and-drop, which
+// never fires on touch screens — this works the same with a finger as a mouse.
+const useDragReorder = onCommit => {
   const [drag, setDrag] = useState(null);   // {kind:"goal"|"step", id}
   const [over, setOver] = useState(null);   // {kind, id, pos:"before"|"after"|"into"}
   const dragRef = useRef(null), overRef = useRef(null), nodes = useRef(new Map());
 
   const reg = (id, kind, el) => { if(el) nodes.current.set(id,{el,kind}); else nodes.current.delete(id); };
 
-  const hitTest = (x,y) => {
+  const hitTest = y => {
     const d = dragRef.current; if(!d) return null;
     let hit = null;
     nodes.current.forEach((meta,id)=>{
@@ -1915,7 +1952,7 @@ const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
   };
   const onMove = e => {
     if(!dragRef.current) return;
-    const hit = hitTest(e.clientX,e.clientY);
+    const hit = hitTest(e.clientY);
     overRef.current = hit; setOver(hit);
     // nudge the scroller when dragging near the top or bottom edge
     const sc=document.querySelector(".main"); const m=70;
@@ -1939,6 +1976,13 @@ const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
       onPointerDown={e=>onDown(e,kind,id)} onPointerMove={onMove}
       onPointerUp={onUp} onPointerCancel={onUp}>⠿</span>
   );
+
+  return { drag, reg, grip, dropCls };
+};
+
+// ─── GoalTree ─────────────────────────────────────────────────────────────────
+const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
+  const { drag, reg, grip, dropCls } = useDragReorder(onCommit);
 
   if(!goals.length) return (
     <div className="empty" style={{marginTop:16}}>No goals yet. Add a big one above to start the tree.</div>
@@ -1995,7 +2039,8 @@ const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
 // Goals scoped to the shown week, each breakable into smaller goals; give a
 // smaller goal a day and it becomes that day's goal. Recurring weekly goals and
 // anything dated inside the week are listed too, so the week is complete.
-const WeekPlanner = memo(({ goals, weekK, newId, onWeek, onEdit, onAdd, onDelete }) => {
+const WeekPlanner = memo(({ goals, weekK, newId, onWeek, onEdit, onAdd, onDelete, onCommit }) => {
+  const { drag, reg, grip, dropCls } = useDragReorder(onCommit);
   const p       = parseWeekKey(weekK) || parseWeekKey(thisWeekKey());
   const days    = weekDays(weekK);
   const today   = todayKey();
@@ -2056,8 +2101,10 @@ const WeekPlanner = memo(({ goals, weekK, newId, onWeek, onEdit, onAdd, onDelete
       {mine.map(g=>{
         const steps=orderedSteps(g.steps);
         return (
-          <div key={g.id} className={`wp-goal${periodDone(g)?" done":""}`}>
+          <div key={g.id} className={`wp-goal${periodDone(g)?" done":""}${drag?.id===g.id?" gt-dragging":""}${dropCls(g.id)}`}
+            ref={el=>reg(g.id,"goal",el)}>
             <div className="wp-goal-hd">
+              {grip("goal",g.id)}
               <div className={`ck${periodDone(g)?" done":""}`} onClick={()=>onEdit(g.id,togglePatch(g))}>{periodDone(g)&&"✓"}</div>
               <input className={`wp-goal-inp${periodDone(g)?" struck":""}`} value={g.title} autoFocus={g.id===newId}
                 placeholder={`A goal for W${p.week}…`} onChange={e=>onEdit(g.id,{title:e.target.value})}/>
@@ -2065,8 +2112,10 @@ const WeekPlanner = memo(({ goals, weekK, newId, onWeek, onEdit, onAdd, onDelete
             </div>
             <div className="wp-steps">
               {steps.map(s=>(
-                <div key={s.id} className="wp-step">
+                <div key={s.id} className={`wp-step${drag?.id===s.id?" gt-dragging":""}${dropCls(s.id)}`}
+                  ref={el=>reg(s.id,"step",el)}>
                   <div className="wp-step-top">
+                    {grip("step",s.id)}
                     <div className={`ck${periodDone(s)?" done":""}`}
                       onClick={()=>setStep(g,s.id,togglePatch(s))}>{periodDone(s)&&"✓"}</div>
                     <input className={`wp-step-inp${periodDone(s)?" struck":""}`} value={s.title}
@@ -2097,6 +2146,7 @@ const WeekPlanner = memo(({ goals, weekK, newId, onWeek, onEdit, onAdd, onDelete
       })}
 
       <button className="add-row" onClick={()=>onAdd(weekK)}>+ Add a goal for W{p.week}</button>
+      {mine.length>1&&<div className="gt-hint" style={{marginTop:10}}>Drag ⠿ to reorder, or drop a smaller goal onto another goal to move it there.</div>}
 
       {(recur.length>0||dated.length>0)&&(
         <div className="wp-also">
@@ -2398,7 +2448,7 @@ const GoalsView = memo(({ refreshKey }) => {
           </div>
           {wkMode==="plan"
             ?<WeekPlanner goals={goals} weekK={weekK} newId={newId} onWeek={setWeekK}
-               onEdit={editGoal} onAdd={addWeekGoal} onDelete={delGoal}/>
+               onEdit={editGoal} onAdd={addWeekGoal} onDelete={delGoal} onCommit={commitDrag}/>
             :<GoalPeriods goals={goals} unit="week" onEdit={editGoal}/>}
         </>
       )}
