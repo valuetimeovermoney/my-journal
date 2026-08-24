@@ -116,8 +116,8 @@ const saveHabits  = h => localStorage.setItem(HABITS_KEY, JSON.stringify(h));
 
 // ─── Goals helpers ────────────────────────────────────────────────────────────
 const GOALS_KEY  = "myjournal_goals";
-const blankGoal  = () => ({ id:uid(), title:"", why:"", target:"", week:"", month:"", timing:"date", done:false, doneP:{}, createdAt:nowTs(), updatedAt:nowTs(), steps:[] });
-const blankStep  = () => ({ id:uid(), title:"", target:"", week:"", month:"", timing:"date", done:false, doneP:{} });
+const blankGoal  = () => ({ id:uid(), title:"", why:"", start:"", target:"", week:"", month:"", timing:"date", done:false, doneP:{}, createdAt:nowTs(), updatedAt:nowTs(), steps:[] });
+const blankStep  = () => ({ id:uid(), title:"", start:"", target:"", week:"", month:"", timing:"date", done:false, doneP:{} });
 const loadGoals  = () => { try{const r=localStorage.getItem(GOALS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
 const saveGoals  = g => localStorage.setItem(GOALS_KEY, JSON.stringify(g));
 
@@ -302,6 +302,39 @@ const isOverdue = item => { const s=schedOf(item); return !s.recurring && s.timi
 const schedRank = item => { const s=schedOf(item); return s.timing==="ongoing" ? 1e9 : s.days===null ? 1e9+1 : s.days; };
 // A goal is only permanently closed if it isn't recurring — recurring ones come back.
 const goalClosed = g => !isRecurring(timingOf(g)) && !!g?.done;
+
+// ─── Start dates ──────────────────────────────────────────────────────────────
+// A deadline says when something must be finished; an optional start date turns
+// that into a span you can see your way through.
+const daysBetween = (a,b) => {
+  const [ay,am,ad]=a.split("-").map(Number), [by,bm,bd]=b.split("-").map(Number);
+  return Math.round((new Date(by,bm-1,bd) - new Date(ay,am-1,ad))/86400000);
+};
+// The deadline as a plain date, whichever way the item is timed.
+const schedEndYmd = item => {
+  const t=timingOf(item);
+  if(t==="ongoing") return "";
+  if(t==="date")    return DATE_RE.test(item?.target||"") ? item.target : "";
+  if(t==="week"||t==="weekly"){
+    const p=parseWeekKey(t==="week" ? (item?.week||"") : thisWeekKey());
+    if(!p) return "";
+    const e=isoWeekStart(p.year,p.week); e.setDate(e.getDate()+6);
+    return dateKey(e);
+  }
+  const k = t==="month" ? (item?.month||"") : thisMonthKey();
+  return MONTH_RE.test(k) ? endOfMonthKey(k) : "";
+};
+const spanOf = item => {
+  const start = DATE_RE.test(item?.start||"") ? item.start : "";
+  if(!start) return null;
+  const until = daysUntil(start);              // positive while it is still ahead
+  const end   = schedEndYmd(item);
+  const total = end ? daysBetween(start,end) : null;
+  const gone  = Math.max(-until,0);
+  return { start, until, notStarted:until>0, total,
+           elapsed: total===null ? null : Math.min(gone,total),
+           pct: total>0 ? Math.round(Math.min(gone,total)/total*100) : (until<=0?100:0) };
+};
 
 // Which week an item belongs to — a dated item still lands in its calendar week.
 // Month-scoped and recurring items have no single week; they group elsewhere.
@@ -823,7 +856,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .goal-why{width:100%;border:none;outline:none;background:transparent;resize:none;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:13px;font-weight:300;line-height:1.7;color:#666;min-height:32px;margin-bottom:12px;}
 .goal-why::placeholder{color:#ccc;}
 .goal-sec-lbl{font-size:10px;color:#a8b8c8;text-transform:uppercase;letter-spacing:1px;margin-bottom:7px;}
-.step-row{display:flex;align-items:center;gap:9px;background:#f7fafc;border-radius:7px;padding:7px 10px;margin-bottom:5px;}
+.step-row{display:flex;align-items:center;gap:9px;background:#f7fafc;border-radius:7px;padding:7px 10px;margin-bottom:5px;flex-wrap:wrap;}
+.step-span{flex:0 0 100%;display:flex;align-items:center;gap:7px;margin:1px 0 0 27px;}
+.wp-span{margin:4px 0 0 26px;}
 .step-inp{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:13px;font-weight:300;color:#1a1a1a;}
 .step-inp::placeholder{color:#c5cfd8;}
 .step-inp.struck{text-decoration:line-through;color:#bbb;}
@@ -847,6 +882,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .step-tim{border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#8fa8bf;cursor:pointer;}
 .step-week{border:none;outline:none;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#8fa8bf;cursor:pointer;max-width:120px;}
 .step-cd.ongoing{color:#4f8f68;}
+
+/* ── start date / span ── */
+.btn-tiny{padding:3px 10px;border:1.5px dashed #dde6ef;border-radius:20px;background:none;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;color:#b8c6d4;cursor:pointer;transition:all .2s;flex-shrink:0;}
+.btn-tiny:hover{border-color:#5a7fa8;color:#5a7fa8;background:#5a7fa808;}
+.goal-start{display:flex;align-items:center;gap:1px;flex-shrink:0;}
+.goal-start .goal-date{background:#f5f8fa;color:#8fa8bf;}
+.goal-span{display:flex;align-items:center;gap:8px;margin-top:9px;}
+.span-bar{flex:1;min-width:50px;height:4px;border-radius:3px;background:#eef2f6;overflow:hidden;}
+.span-fill{height:100%;background:#9db8d4;border-radius:3px;transition:width .3s;}
+.span-lbl{font-size:10px;color:#a8b8c8;flex-shrink:0;}
+.span-lbl.pre{color:#c98a2e;font-weight:600;}
+.gt-badge.pre{background:#fdf6ea;color:#c98a2e;}
 
 /* ── week planner ── */
 .wp-nav{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
@@ -1649,6 +1696,44 @@ const IdeasView = memo(({ refreshKey }) => {
 });
 
 // ─── GoalsView (big goals, each broken into smaller steps, on a timeline) ─────
+// Set or clear a start date. Same control for a big goal and a smaller one —
+// only the date input's styling differs.
+const StartControl = memo(({ item, onSet, compact }) => {
+  if(!spanOf(item)) return (
+    <button className="btn-tiny" title="Track when this starts"
+      onClick={()=>onSet("start",todayKey())}>+ start</button>
+  );
+  return (
+    <span className="goal-start">
+      <input className={compact?"step-date set":"goal-date"} type="date" value={item.start||""}
+        title="Start date" onChange={e=>onSet("start",e.target.value)}/>
+      <button className="goal-btn del" title="Remove start date" onClick={()=>onSet("start","")}>×</button>
+    </span>
+  );
+});
+
+// How far through the span we are — a countdown before it starts, a bar once
+// it has, or just elapsed days when there is no deadline to measure against.
+const SpanLine = memo(({ item, cls }) => {
+  const sp = spanOf(item);
+  if(!sp) return null;
+  return (
+    <div className={cls||"goal-span"}>
+      {sp.notStarted
+        ? <span className="span-lbl pre">starts in {sp.until}d · {fmtDate(sp.start,{month:"short",day:"numeric"})}</span>
+        : sp.total>0
+          ? <>
+              <div className="span-bar"><div className="span-fill" style={{width:`${sp.pct}%`}}/></div>
+              <span className="span-lbl">day {sp.elapsed+1} of {sp.total+1}</span>
+            </>
+          : <span className="span-lbl">
+              started {fmtDate(sp.start,{month:"short",day:"numeric"})}
+              {sp.until<0?` · ${-sp.until}d in`:" · today"}
+            </span>}
+    </div>
+  );
+});
+
 // Timing mode plus whichever input that mode needs. Six modes is past what a
 // segmented control can carry, so it's a grouped select.
 const TimingSelect = ({ cls, value, onChange }) => (
@@ -1745,11 +1830,13 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
       <div className="goal-meta">
         <TimingPicker item={goal} onSet={set}/>
         <span className={`goal-cd${sched.cls?" "+sched.cls:""}`}>{sched.label}</span>
+        <StartControl item={goal} onSet={set}/>
         {real.length>0&&<>
           <div className="goal-prog"><div className="goal-prog-fill" style={{width:`${pct}%`}}/></div>
           <span className="goal-prog-lbl">{done}/{real.length}</span>
         </>}
       </div>
+      <SpanLine item={goal}/>
       <PeriodStrip item={goal} onToggleKey={k=>{
         const dp={...(goal.doneP||{})}; if(dp[k]) delete dp[k]; else dp[k]=true;
         onChange({...goal,doneP:dp});
@@ -1775,8 +1862,10 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
                   {!periodDone(s)&&!ss.recurring&&ss.days!==null&&<span className={`step-cd${ss.days<0?" over":""}`}>{fmtCountdown(ss.days)}</span>}
                   {ss.timing==="ongoing"&&<span className="step-cd ongoing">ongoing</span>}
                   <TimingPicker item={s} compact onSet={(f,v)=>setStep(s.id,f,v)}/>
+                  <StartControl item={s} compact onSet={(f,v)=>setStep(s.id,f,v)}/>
                 </div>
                 <button className="goal-btn del" onClick={()=>delStep(s.id)}>×</button>
+                <SpanLine item={s} cls="step-span"/>
               </div>
             );
           })}
@@ -1868,6 +1957,7 @@ const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
               <div className={`ck${periodDone(g)?" done":""}`} onClick={()=>onEdit(g.id,togglePatch(g))}>{periodDone(g)&&"✓"}</div>
               <input className={`gt-title${goalClosed(g)?" struck":""}`} value={g.title} placeholder="A big goal…"
                 onChange={e=>onEdit(g.id,{title:e.target.value})}/>
+              {spanOf(g)?.notStarted&&<span className="gt-badge pre">starts in {spanOf(g).until}d</span>}
               <span className={`gt-badge${gs.cls?" "+gs.cls:""}`}>{gs.label}</span>
               <button className="goal-btn del" onClick={()=>onDelete(g.id)}>×</button>
             </div>
@@ -1884,6 +1974,7 @@ const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
                           onClick={()=>onEdit(g.id,{steps:steps.map(x=>x.id===s.id?{...x,...togglePatch(x)}:x)})}>{periodDone(s)&&"✓"}</div>
                         <input className={`gt-title${periodDone(s)&&!ss.recurring?" struck":""}`} value={s.title} placeholder="A smaller goal…"
                           onChange={e=>onEdit(g.id,{steps:steps.map(x=>x.id===s.id?{...x,title:e.target.value}:x)})}/>
+                        {spanOf(s)?.notStarted&&<span className="gt-badge pre">starts in {spanOf(s).until}d</span>}
                         <span className={`gt-badge${ss.cls?" "+ss.cls:""}`}>{ss.label}</span>
                         <button className="goal-btn del"
                           onClick={()=>onEdit(g.id,{steps:steps.filter(x=>x.id!==s.id)})}>×</button>
@@ -1982,8 +2073,10 @@ const WeekPlanner = memo(({ goals, weekK, newId, onWeek, onEdit, onAdd, onDelete
                       placeholder="A smaller goal — pick a day to make it a daily one…"
                       onChange={e=>setStep(g,s.id,{title:e.target.value})}
                       onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addStep(g,"");}}}/>
+                    <StartControl item={s} compact onSet={(f,v)=>setStep(g,s.id,{[f]:v})}/>
                     <button className="goal-btn del" onClick={()=>delStep(g,s.id)}>×</button>
                   </div>
+                  <SpanLine item={s} cls="step-span wp-span"/>
                   <div className="wp-chips">
                     {days.map(d=>(
                       <button key={d.ymd}
