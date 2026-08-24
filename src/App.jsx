@@ -384,7 +384,24 @@ const REPORTS_KEY = "myjournal_reports";
 const REPORT_DEPTHS = [["new","New"],["deep","Deep dive"]];
 // Anything saved before this existed reads as a first look.
 const depthOf = r => r?.depth==="deep" ? "deep" : "new";
-const blankReport = (status="planned", depth="new") => ({ id:uid(), company:"", detail:"", status, depth, due:"", readOn:status==="read"?todayKey():"", createdAt:nowTs(), updatedAt:nowTs() });
+const blankReport = (status="planned", depth="new") => ({ id:uid(), company:"", detail:"", status, depth, start:"", due:"", readOn:status==="read"?todayKey():"", createdAt:nowTs(), updatedAt:nowTs() });
+
+// Research runs over days — a deep dive begun Monday and finished Thursday.
+// A planned entry measures against its due date, a logged one against the day
+// it was actually finished.
+const reportSpan = r => {
+  const start = DATE_RE.test(r?.start||"") ? r.start : "";
+  if(!start) return null;
+  const done  = r?.status==="read";
+  const end   = done ? (DATE_RE.test(r?.readOn||"") ? r.readOn : "")
+                     : (DATE_RE.test(r?.due||"")    ? r.due    : "");
+  const until = daysUntil(start);
+  const total = end ? Math.max(daysBetween(start,end),0) : null;
+  const gone  = Math.max(-until,0);
+  return { start, end, done, until, notStarted:until>0, total,
+           elapsed: total===null ? null : Math.min(gone,total),
+           pct: total>0 ? Math.round(Math.min(gone,total)/total*100) : (until<=0?100:0) };
+};
 const loadReports = () => { try{const r=localStorage.getItem(REPORTS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
 const saveReports = r => localStorage.setItem(REPORTS_KEY, JSON.stringify(r));
 
@@ -1008,6 +1025,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .gw-parent{font-size:10px;color:#a8b8c8;flex-shrink:0;max-width:36%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 /* ── reports view (company research tracker) ── */
+.rp-span{display:flex;align-items:center;gap:8px;margin-top:7px;}
 .rp-rows{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:-12px 0 20px;}
 .rp-rlbl{font-size:10px;color:#a8b8c8;text-transform:uppercase;letter-spacing:.9px;}
 .rp-depth{display:inline-flex;border:1.5px solid #e2ece3;border-radius:20px;overflow:hidden;flex-shrink:0;}
@@ -2479,6 +2497,45 @@ const RPT_BUCKETS = [
   {key:"someday", label:"No Date Yet"},
 ];
 
+const ReportStart = memo(({ r, onSet }) => (
+  r.start
+    ? <span className="goal-start">
+        <input className="rp-date" type="date" value={r.start} title="Started on"
+          onChange={e=>onSet({start:e.target.value})}/>
+        <button className="goal-btn del" title="Remove start date" onClick={()=>onSet({start:""})}>×</button>
+      </span>
+    : <button className="btn-tiny" title="Track when you started" onClick={()=>onSet({start:todayKey()})}>+ start</button>
+));
+
+const ReportSpan = memo(({ r }) => {
+  const sp = reportSpan(r);
+  if(!sp) return null;
+  if(sp.done) return (
+    <div className="rp-span">
+      <span className="span-lbl">
+        {sp.total===null ? `started ${fmtDate(sp.start,{month:"short",day:"numeric"})}`
+          : sp.total===0 ? "same day"
+          : `took ${sp.total+1} days`}
+      </span>
+    </div>
+  );
+  return (
+    <div className="rp-span">
+      {sp.notStarted
+        ? <span className="span-lbl pre">starts in {sp.until}d · {fmtDate(sp.start,{month:"short",day:"numeric"})}</span>
+        : sp.total>0
+          ? <>
+              <div className="span-bar"><div className="span-fill" style={{width:`${sp.pct}%`}}/></div>
+              <span className="span-lbl">day {sp.elapsed+1} of {sp.total+1}</span>
+            </>
+          : <span className="span-lbl">
+              started {fmtDate(sp.start,{month:"short",day:"numeric"})}
+              {sp.until<0?` · ${-sp.until}d in`:" · today"}
+            </span>}
+    </div>
+  );
+});
+
 const ReportsView = memo(({ refreshKey }) => {
   const [reports, setReports] = useState(()=>loadReports());
   const [draft,   setDraft]   = useState("");
@@ -2587,12 +2644,14 @@ const ReportsView = memo(({ refreshKey }) => {
                           onClick={()=>upd(r.id,{depth:k})}>{l}</button>
                       ))}
                     </span>
+                    <ReportStart r={r} onSet={patch=>upd(r.id,patch)}/>
                     <button className={`rp-chip${r.due===todayKey()?" on":""}`} onClick={()=>upd(r.id,{due:todayKey()})}>Today</button>
                     <button className={`rp-chip${r.due===endOfWeekYmd()?" on":""}`} onClick={()=>upd(r.id,{due:endOfWeekYmd()})}>This wk</button>
                     <button className={`rp-chip${r.due===endOfMonthYmd()?" on":""}`} onClick={()=>upd(r.id,{due:endOfMonthYmd()})}>This mo</button>
                     <input className="rp-date" type="date" value={r.due||""} title="Target date"
                       onChange={e=>upd(r.id,{due:e.target.value})}/>
                   </div>
+                  <ReportSpan r={r}/>
                 </div>
                 <button className="goal-btn del" onClick={()=>del(r.id)}>×</button>
               </div>
@@ -2623,11 +2682,13 @@ const ReportsView = memo(({ refreshKey }) => {
                         onClick={()=>upd(r.id,{depth:k})}>{l}</button>
                     ))}
                   </span>
+                  <ReportStart r={r} onSet={patch=>upd(r.id,patch)}/>
                   <input className="rp-detail-inp" value={r.detail||""} placeholder="Notes — e.g. FY2024 10-K, key takeaway…"
                     onChange={e=>upd(r.id,{detail:e.target.value})}/>
-                  <input className="rp-date" type="date" value={r.readOn||""} title="Date read"
+                  <input className="rp-date" type="date" value={r.readOn||""} title="Finished on"
                     onChange={e=>upd(r.id,{readOn:e.target.value})}/>
                 </div>
+                <ReportSpan r={r}/>
               </div>
               <button className="goal-btn del" onClick={()=>del(r.id)}>×</button>
             </div>
