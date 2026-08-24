@@ -381,8 +381,40 @@ const saveIdeas  = ideas => localStorage.setItem(IDEAS_KEY, JSON.stringify(ideas
 
 // ─── Annual report tracker helpers ────────────────────────────────────────────
 const REPORTS_KEY = "myjournal_reports";
-const blankReport = (status="planned") => ({ id:uid(), company:"", detail:"", status, due:"", readOn:status==="read"?todayKey():"", createdAt:nowTs(), updatedAt:nowTs() });
-const loadReports = () => { try{const r=localStorage.getItem(REPORTS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
+const REPORT_DEPTHS = [["new","New"],["deep","Deep dive"]];
+// Anything saved before this existed reads as a first look.
+const depthOf = r => r?.depth==="deep" ? "deep" : "new";
+const normCompany = c => (c||"").trim().toLowerCase();
+const blankReport = (status="planned", depth="new") => ({ id:uid(), company:"", notes:[], status, depth, start:"", due:"", readOn:status==="read"?todayKey():"", createdAt:nowTs(), updatedAt:nowTs() });
+
+// The old single-line "detail" becomes the first note, so anything already
+// jotted down carries over rather than disappearing.
+const migrateReport = r => {
+  if(!r || typeof r!=="object") return r;
+  const { detail, ...rest } = r;
+  let notes = Array.isArray(r.notes) ? r.notes : [];
+  if(!notes.length && typeof detail==="string" && detail.trim())
+    notes = [{ id:uid(), ts:r.updatedAt||r.createdAt||nowTs(), text:detail }];
+  return { ...rest, notes };
+};
+
+// Research runs over days — a deep dive begun Monday and finished Thursday.
+// A planned entry measures against its due date, a logged one against the day
+// it was actually finished.
+const reportSpan = r => {
+  const start = DATE_RE.test(r?.start||"") ? r.start : "";
+  if(!start) return null;
+  const done  = r?.status==="read";
+  const end   = done ? (DATE_RE.test(r?.readOn||"") ? r.readOn : "")
+                     : (DATE_RE.test(r?.due||"")    ? r.due    : "");
+  const until = daysUntil(start);
+  const total = end ? Math.max(daysBetween(start,end),0) : null;
+  const gone  = Math.max(-until,0);
+  return { start, end, done, until, notStarted:until>0, total,
+           elapsed: total===null ? null : Math.min(gone,total),
+           pct: total>0 ? Math.round(Math.min(gone,total)/total*100) : (until<=0?100:0) };
+};
+const loadReports = () => { try{const r=localStorage.getItem(REPORTS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d.map(migrateReport);}}catch{} return []; };
 const saveReports = r => localStorage.setItem(REPORTS_KEY, JSON.stringify(r));
 
 // The week runs Monday → Sunday, matching the Sunday weekly reflection.
@@ -1004,7 +1036,33 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .gw-txt.struck{text-decoration:line-through;color:#bbb;}
 .gw-parent{font-size:10px;color:#a8b8c8;flex-shrink:0;max-width:36%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
-/* ── reports view (annual report tracker) ── */
+/* ── reports view (company research tracker) ── */
+.rc-co{background:white;border-radius:10px;padding:16px 18px;margin-bottom:14px;border:1.5px solid #e2ece3;}
+.rc-hd{margin-bottom:13px;padding-bottom:11px;border-bottom:1px solid #f0f6f0;}
+.rc-name{font-family:'Playfair Display',serif;font-size:17px;font-weight:600;color:#1a1a1a;line-height:1.3;}
+.rc-badge{display:inline-block;margin-left:8px;padding:2px 9px;border-radius:20px;background:#4a6fa5;color:white;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;font-weight:600;vertical-align:middle;}
+.rc-stats{display:flex;gap:12px;flex-wrap:wrap;margin-top:7px;font-size:11px;color:#a8c0ab;}
+.rc-stats strong{color:#5a9a60;font-weight:600;}
+.rc-note{padding-top:12px;margin-top:12px;border-top:1px solid #f4f9f4;}
+.rc-note.first{padding-top:0;margin-top:0;border-top:none;}
+.rc-note-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;}
+.rc-note-date{font-size:10px;color:#5a9a60;font-weight:500;letter-spacing:.3px;}
+.rp-notes{margin-top:9px;padding-top:9px;border-top:1px solid #eef4ee;}
+.reports-view .gnote{background:#f4faf5;}
+.reports-view .gnote:focus-within{border-color:#5a9a6050;}
+.reports-view .gnote-ts{color:#5a9a60;}
+.reports-view .goal-add-step{border-color:#dbeadd;color:#9dbca3;}
+.reports-view .goal-add-step:hover{border-color:#5a9a60;color:#5a9a60;background:#5a9a6008;}
+.rp-span{display:flex;align-items:center;gap:8px;margin-top:7px;}
+.rp-rows{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:-12px 0 20px;}
+.rp-rlbl{font-size:10px;color:#a8b8c8;text-transform:uppercase;letter-spacing:.9px;}
+.rp-depth{display:inline-flex;border:1.5px solid #e2ece3;border-radius:20px;overflow:hidden;flex-shrink:0;}
+.rp-depth button{border:none;background:none;padding:2px 10px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;color:#8aa890;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.rp-depth button+button{border-left:1.5px solid #e2ece3;}
+.rp-depth button:hover:not(.on){background:#f2f8f3;color:#5a9a60;}
+.rp-depth button.on{background:#5a9a60;color:white;}
+.rp-depth button.on.deep{background:#4a6fa5;}
+
 .reports-view{padding:28px 52px 80px;max-width:760px;}
 .rp-add{display:flex;gap:7px;margin-bottom:24px;flex-wrap:wrap;}
 .rp-add-inp{flex:1;min-width:150px;border:1.5px solid #e0d8cc;border-radius:8px;background:white;padding:10px 13px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:14px;color:#1a1a1a;outline:none;transition:border-color .2s;}
@@ -1031,9 +1089,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .rp-chip.on{background:#5a9a60;border-color:#5a9a60;color:white;}
 .rp-date{border:none;outline:none;background:#f2f8f3;border-radius:6px;padding:3px 7px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#5a9a60;cursor:pointer;}
 .rp-date::-webkit-calendar-picker-indicator{opacity:.45;cursor:pointer;}
-.rp-detail-inp{flex:1;min-width:120px;border:none;outline:none;background:transparent;border-bottom:1px solid #eef4ee;padding:2px 0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:12px;font-style:italic;color:#888;transition:border-color .2s;}
-.rp-detail-inp:focus{border-color:#5a9a60;}
-.rp-detail-inp::placeholder{color:#ccd8cc;}
 
 /* ── book notes (timestamped, inside a book card) ── */
 .bnote-list{display:flex;flex-direction:column;gap:7px;}
@@ -1251,7 +1306,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .book-fields{grid-template-columns:1fr;}
   /* Prevent iOS auto-zoom on input focus (triggered when font-size < 16px) */
   .ti,.loc-inp,.db-ta,.bf-inp,.mq-ta,.gi,.idea-title-inp,.idea-desc-ta,.bnote-ta,
-  .goal-title-inp,.gnote-ta,.step-inp,.rp-add-inp,.rp-co-inp,.rp-detail-inp,.gt-title,.wp-goal-inp,.wp-step-inp{font-size:16px;}
+  .goal-title-inp,.gnote-ta,.step-inp,.rp-add-inp,.rp-co-inp,.gt-title,.wp-goal-inp,.wp-step-inp{font-size:16px;}
   /* the date pickers stay small — they open a native picker, so no zoom risk */
   .step-date.set{width:92px;}
 }
@@ -2467,9 +2522,154 @@ const RPT_BUCKETS = [
   {key:"someday", label:"No Date Yet"},
 ];
 
+const ReportStart = memo(({ r, onSet }) => (
+  r.start
+    ? <span className="goal-start">
+        <input className="rp-date" type="date" value={r.start} title="Started on"
+          onChange={e=>onSet({start:e.target.value})}/>
+        <button className="goal-btn del" title="Remove start date" onClick={()=>onSet({start:""})}>×</button>
+      </span>
+    : <button className="btn-tiny" title="Track when you started" onClick={()=>onSet({start:todayKey()})}>+ start</button>
+));
+
+const ReportSpan = memo(({ r }) => {
+  const sp = reportSpan(r);
+  if(!sp) return null;
+  if(sp.done) return (
+    <div className="rp-span">
+      <span className="span-lbl">
+        {sp.total===null ? `started ${fmtDate(sp.start,{month:"short",day:"numeric"})}`
+          : sp.total===0 ? "same day"
+          : `took ${sp.total+1} days`}
+      </span>
+    </div>
+  );
+  return (
+    <div className="rp-span">
+      {sp.notStarted
+        ? <span className="span-lbl pre">starts in {sp.until}d · {fmtDate(sp.start,{month:"short",day:"numeric"})}</span>
+        : sp.total>0
+          ? <>
+              <div className="span-bar"><div className="span-fill" style={{width:`${sp.pct}%`}}/></div>
+              <span className="span-lbl">day {sp.elapsed+1} of {sp.total+1}</span>
+            </>
+          : <span className="span-lbl">
+              started {fmtDate(sp.start,{month:"short",day:"numeric"})}
+              {sp.until<0?` · ${-sp.until}d in`:" · today"}
+            </span>}
+    </div>
+  );
+});
+
+const ReportNotes = memo(({ r, open, onSet }) => {
+  const notes = Array.isArray(r.notes) ? r.notes : [];
+  if(!open) return null;
+  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
+  return (
+    <div className="rp-notes">
+      <div className="gnote-list">
+        {notes.map(nt=>(
+          <div key={nt.id} className="gnote">
+            <div className="gnote-head">
+              <span className="gnote-ts">
+                {nt.ts?fmtTime(nt.ts):"earlier"}
+                {nt.ts?` · ${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric"})}`:""}
+              </span>
+              <button className="goal-btn del"
+                onClick={()=>onSet({notes:notes.filter(x=>x.id!==nt.id)})}>×</button>
+            </div>
+            <textarea className="gnote-ta" value={nt.text} placeholder="What stood out? Numbers, risks, questions…"
+              onChange={e=>{onSet({notes:notes.map(x=>x.id===nt.id?{...x,text:e.target.value}:x)});grow(e.target);}}
+              onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+          </div>
+        ))}
+      </div>
+      <button className="goal-add-step"
+        onClick={()=>onSet({notes:[...notes,{id:uid(),ts:nowTs(),text:""}]})}>
+        {notes.length===0?"+ Add a note…":`+ Add another note · ${fmtTime(nowTs())}`}
+      </button>
+    </div>
+  );
+});
+
+// Every note ever written about a company, gathered under it — sessions are how
+// the work gets logged, but the research itself accumulates per company.
+const ResearchByCompany = memo(({ reports, newNoteId, onNoteChange, onNoteDelete, onAddNote }) => {
+  const companies = useMemo(()=>{
+    const map = new Map();
+    // reports is newest-first, so the first spelling seen is the current one
+    reports.forEach(r=>{
+      const key = normCompany(r.company); if(!key) return;
+      if(!map.has(key)) map.set(key,{key,name:r.company.trim(),sessions:0,deep:false,notes:[],first:"",last:""});
+      const rec = map.get(key);
+      rec.sessions++;
+      if(depthOf(r)==="deep") rec.deep = true;
+      const d = r.status==="read" ? (r.readOn||"") : (r.due||"");
+      if(d){ if(!rec.first||d<rec.first) rec.first=d; if(d>rec.last) rec.last=d; }
+      (r.notes||[]).forEach(nt=>rec.notes.push({...nt, entryId:r.id, entryDate:d}));
+    });
+    return [...map.values()]
+      .map(c=>({...c, notes:c.notes.sort((a,b)=>(Number(b.ts)||0)-(Number(a.ts)||0))}))
+      .sort((a,b)=>(b.last||"").localeCompare(a.last||"") || b.notes.length-a.notes.length);
+  },[reports]);
+
+  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
+
+  if(!companies.length) return (
+    <div className="rv-no-notes" style={{marginTop:12}}>No companies yet. Add one above to start a research log.</div>
+  );
+
+  return (
+    <div>
+      {companies.map(c=>(
+        <div key={c.key} className="rc-co">
+          <div className="rc-hd">
+            <div className="rc-name">
+              {c.name}
+              {c.deep&&<span className="rc-badge">Deep dive</span>}
+            </div>
+            <div className="rc-stats">
+              <span><strong>{c.sessions}</strong> session{c.sessions!==1?"s":""}</span>
+              <span><strong>{c.notes.length}</strong> note{c.notes.length!==1?"s":""}</span>
+              {c.first&&<span>first {fmtDate(c.first,{month:"short",day:"numeric"})}</span>}
+              {c.last&&c.last!==c.first&&<span>latest {fmtDate(c.last,{month:"short",day:"numeric"})}</span>}
+            </div>
+          </div>
+
+          {c.notes.map((nt,i)=>(
+            <div key={`${nt.entryId}-${nt.id}`} className={`rc-note${i===0?" first":""}`}>
+              <div className="rc-note-hd">
+                <span className="rc-note-date">
+                  {nt.ts
+                    ? `${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric",year:"numeric"})} · ${fmtTime(nt.ts)}`
+                    : nt.entryDate ? fmtDate(nt.entryDate,{month:"short",day:"numeric",year:"numeric"}) : "earlier"}
+                </span>
+                <button className="goal-btn del" onClick={()=>onNoteDelete(nt.entryId,nt.id)}>×</button>
+              </div>
+              <textarea className="gnote-ta" value={nt.text} autoFocus={nt.id===newNoteId}
+                placeholder="What stood out? Numbers, risks, questions…"
+                onChange={e=>{onNoteChange(nt.entryId,nt.id,e.target.value);grow(e.target);}}
+                onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+            </div>
+          ))}
+
+          <button className="goal-add-step" style={{marginTop:12}} onClick={()=>onAddNote(c.name)}>
+            + Add a note on {c.name} · {fmtTime(nowTs())}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+});
+
 const ReportsView = memo(({ refreshKey }) => {
   const [reports, setReports] = useState(()=>loadReports());
   const [draft,   setDraft]   = useState("");
+  const [adding,  setAdding]  = useState("new");   // depth applied to new entries
+  const [filter,  setFilter]  = useState("all");
+  const [openN,   setOpenN]   = useState({});      // which cards have notes expanded
+  const [view,    setView]    = useState("log");   // "log" | "company"
+  const [newNote, setNewNote] = useState(null);
 
   useEffect(()=>setReports(loadReports()),[refreshKey]);
 
@@ -2479,7 +2679,7 @@ const ReportsView = memo(({ refreshKey }) => {
   // Enter / "Read today" logs it as read now; "Plan" queues it for this week.
   const add = status=>{
     const company=draft.trim(); if(!company) return;
-    const base={...blankReport(status), company};
+    const base={...blankReport(status, adding), company};
     if(status==="planned") base.due=endOfWeekYmd();
     persist([base, ...loadReports()]);
     setDraft("");
@@ -2487,39 +2687,104 @@ const ReportsView = memo(({ refreshKey }) => {
   const upd = (id,patch)=>persist(loadReports().map(r=>r.id===id?stamp({...r,...patch}):r));
   const del = id=>persist(loadReports().filter(r=>r.id!==id));
 
-  const planned = reports.filter(r=>r.status==="planned");
-  const readLog = [...reports.filter(r=>r.status==="read")]
+  // The by-company view edits notes belonging to whichever entry holds them.
+  const noteChange = (entryId,noteId,text)=>{
+    const e=loadReports().find(x=>x.id===entryId); if(!e) return;
+    upd(entryId,{notes:(e.notes||[]).map(nt=>nt.id===noteId?{...nt,text}:nt)});
+  };
+  const noteDelete = (entryId,noteId)=>{
+    const e=loadReports().find(x=>x.id===entryId); if(!e) return;
+    upd(entryId,{notes:(e.notes||[]).filter(nt=>nt.id!==noteId)});
+  };
+  // A note written today is research done today: it joins today's entry for
+  // that company, or opens one if there isn't yet, keeping the log honest.
+  const addCompanyNote = name=>{
+    const list=loadReports(), key=normCompany(name);
+    const note={id:uid(),ts:nowTs(),text:""};
+    const todays=list.find(r=>normCompany(r.company)===key&&r.status==="read"&&r.readOn===todayKey());
+    if(todays) upd(todays.id,{notes:[...(todays.notes||[]),note]});
+    else {
+      const everDeep=list.some(r=>normCompany(r.company)===key&&depthOf(r)==="deep");
+      persist([{...blankReport("read",everDeep?"deep":"new"), company:name, notes:[note]}, ...list]);
+    }
+    setNewNote(note.id);
+  };
+
+  const shown   = filter==="all" ? reports : reports.filter(r=>depthOf(r)===filter);
+  const newN    = reports.filter(r=>depthOf(r)==="new").length;
+  const deepN   = reports.filter(r=>depthOf(r)==="deep").length;
+  const planned = shown.filter(r=>r.status==="planned");
+  const readLog = [...shown.filter(r=>r.status==="read")]
     .sort((a,b)=>(b.readOn||"").localeCompare(a.readOn||"")||(Number(b.updatedAt)||0)-(Number(a.updatedAt)||0));
   const byBucket  = k=>planned.filter(r=>reportBucket(r.due)===k)
     .sort((a,b)=>(a.due||"9999").localeCompare(b.due||"9999"));
   const readDates = [...new Set(readLog.map(r=>r.readOn||""))];
   const sow       = startOfWeekYmd();
-  const thisWeek  = readLog.filter(r=>r.readOn&&r.readOn>=sow).length;
-  const overdue   = byBucket("overdue").length;
+  // Counted across everything, not the filtered slice, so narrowing the view
+  // doesn't appear to change how much research you've actually done.
+  const allRead    = reports.filter(r=>r.status==="read");
+  const allPlanned = reports.filter(r=>r.status==="planned");
+  const thisWeek   = allRead.filter(r=>r.readOn&&r.readOn>=sow).length;
+  const overdue    = allPlanned.filter(r=>reportBucket(r.due)==="overdue").length;
+  const filtered   = filter!=="all";
 
   return (
     <div className="reports-view">
-      <div className="eyebrow">Annual Reports</div>
-      <h1 className="pg-title">Report <em>Reading</em></h1>
+      <div className="eyebrow">Companies</div>
+      <h1 className="pg-title">Company <em>Research</em></h1>
       <p style={{fontSize:13,color:"#aaa",fontWeight:300,marginTop:6,marginBottom:6}}>
-        Log the annual report you read each day, and queue what to read next — today, this week, or this month.
+        Log the companies you look at each day, marked as a first look or a deep dive, and queue what to research next.
       </p>
-      {(readLog.length>0||planned.length>0)&&(
+      {reports.length>0&&(
         <p style={{fontSize:12,color:overdue?"#c05050":"#5a9a60",marginBottom:18}}>
-          {readLog.length} read · {thisWeek} this week · {planned.length} planned{overdue?` · ${overdue} overdue`:""}
+          {allRead.length} researched · {thisWeek} this week · {allPlanned.length} planned
+          {newN?` · ${newN} new`:""}{deepN?` · ${deepN} deep ${deepN===1?"dive":"dives"}`:""}
+          {overdue?` · ${overdue} overdue`:""}
         </p>
       )}
+
+      <div className="gv-sort" style={{marginBottom:14}}>
+        <button className={`gv-sort-btn${view==="log"?" active":""}`} onClick={()=>setView("log")}>Plan &amp; log</button>
+        <button className={`gv-sort-btn${view==="company"?" active":""}`} onClick={()=>setView("company")}>By company</button>
+      </div>
 
       <div className="rp-add">
         <input className="rp-add-inp" value={draft} placeholder="Company — e.g. Apple (AAPL)"
           onChange={e=>setDraft(e.target.value)}
           onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();add("read");}}}/>
-        <button className="rp-btn solid" onClick={()=>add("read")} title="Log it as read today">✓ Read today</button>
-        <button className="rp-btn" onClick={()=>add("planned")} title="Queue it to read later">+ Plan</button>
+        <button className="rp-btn solid" onClick={()=>add("read")} title="Log it as researched today">✓ Did today</button>
+        <button className="rp-btn" onClick={()=>add("planned")} title="Queue it to research later">+ Plan</button>
       </div>
 
-      <div className="rp-sec-hd">Reading Plan</div>
-      {planned.length===0&&<div className="rv-no-notes" style={{marginTop:8}}>Nothing queued. Type a company above and hit "+ Plan".</div>}
+      <div className="rp-rows">
+        <span className="rp-rlbl">Add as</span>
+        <span className="rp-depth">
+          {REPORT_DEPTHS.map(([k,l])=>(
+            <button key={k} className={`${adding===k?"on":""}${k==="deep"?" deep":""}`}
+              onClick={()=>setAdding(k)}>{l}</button>
+          ))}
+        </span>
+        {(newN>0||deepN>0)&&<>
+          <span className="rp-rlbl" style={{marginLeft:8}}>Show</span>
+          <span className="rp-depth">
+            <button className={filter==="all"?"on":""} onClick={()=>setFilter("all")}>All</button>
+            {REPORT_DEPTHS.map(([k,l])=>(
+              <button key={k} className={`${filter===k?"on":""}${k==="deep"?" deep":""}`}
+                onClick={()=>setFilter(k)}>{l}</button>
+            ))}
+          </span>
+        </>}
+      </div>
+
+      {view==="company"
+        ?<ResearchByCompany reports={shown} newNoteId={newNote}
+           onNoteChange={noteChange} onNoteDelete={noteDelete} onAddNote={addCompanyNote}/>
+        :<>
+      <div className="rp-sec-hd">Research Plan</div>
+      {planned.length===0&&<div className="rv-no-notes" style={{marginTop:8}}>
+        {filtered&&allPlanned.length>0 ? "No planned companies match this filter."
+          : 'Nothing queued. Type a company above and hit "+ Plan".'}
+      </div>}
       {RPT_BUCKETS.map(b=>{
         const list=byBucket(b.key);
         if(!list.length) return null;
@@ -2528,17 +2793,31 @@ const ReportsView = memo(({ refreshKey }) => {
             <div className={`rp-bucket${b.key==="overdue"?" over":""}`}>{b.label}</div>
             {list.map(r=>(
               <div key={r.id} className="rp-card">
-                <div className="ck" onClick={()=>upd(r.id,{status:"read",readOn:todayKey()})} title="Mark as read today"/>
+                <div className="ck" onClick={()=>upd(r.id,{status:"read",readOn:todayKey()})} title="Log as researched today"/>
                 <div className="rp-card-main">
                   <input className="rp-co-inp" value={r.company} placeholder="Company…"
                     onChange={e=>upd(r.id,{company:e.target.value})}/>
                   <div className="rp-meta">
+                    <span className="rp-depth">
+                      {REPORT_DEPTHS.map(([k,l])=>(
+                        <button key={k} className={`${depthOf(r)===k?"on":""}${k==="deep"?" deep":""}`}
+                          title={k==="new"?"A first look at this company":"A thorough dig into this company"}
+                          onClick={()=>upd(r.id,{depth:k})}>{l}</button>
+                      ))}
+                    </span>
+                    <ReportStart r={r} onSet={patch=>upd(r.id,patch)}/>
                     <button className={`rp-chip${r.due===todayKey()?" on":""}`} onClick={()=>upd(r.id,{due:todayKey()})}>Today</button>
                     <button className={`rp-chip${r.due===endOfWeekYmd()?" on":""}`} onClick={()=>upd(r.id,{due:endOfWeekYmd()})}>This wk</button>
                     <button className={`rp-chip${r.due===endOfMonthYmd()?" on":""}`} onClick={()=>upd(r.id,{due:endOfMonthYmd()})}>This mo</button>
                     <input className="rp-date" type="date" value={r.due||""} title="Target date"
                       onChange={e=>upd(r.id,{due:e.target.value})}/>
+                    <button className={`rp-chip${openN[r.id]?" on":""}`} title="Notes"
+                      onClick={()=>setOpenN(o=>({...o,[r.id]:!o[r.id]}))}>
+                      ✎{(r.notes||[]).length?` ${r.notes.length}`:""}
+                    </button>
                   </div>
+                  <ReportSpan r={r}/>
+                  <ReportNotes r={r} open={!!openN[r.id]} onSet={patch=>upd(r.id,patch)}/>
                 </div>
                 <button className="goal-btn del" onClick={()=>del(r.id)}>×</button>
               </div>
@@ -2547,29 +2826,45 @@ const ReportsView = memo(({ refreshKey }) => {
         );
       })}
 
-      <div className="rp-sec-hd" style={{marginTop:30}}>Read Log</div>
-      {readLog.length===0&&<div className="rv-no-notes" style={{marginTop:8}}>No reports logged yet. Type a company above and hit "✓ Read today".</div>}
+      <div className="rp-sec-hd" style={{marginTop:30}}>Research Log</div>
+      {readLog.length===0&&<div className="rv-no-notes" style={{marginTop:8}}>
+        {filtered&&allRead.length>0 ? "No logged companies match this filter."
+          : 'Nothing logged yet. Type a company above and hit "✓ Did today".'}
+      </div>}
       {readDates.map(d=>(
         <div key={d||"undated"}>
           <div className="rp-bucket">{d?fmtDate(d,{weekday:"short",month:"long",day:"numeric",year:"numeric"}):"Undated"}</div>
           {readLog.filter(r=>(r.readOn||"")===d).map(r=>(
             <div key={r.id} className="rp-card read">
-              <div className="ck done" onClick={()=>upd(r.id,{status:"planned",readOn:""})} title="Not read after all — move back to the plan">✓</div>
+              <div className="ck done" onClick={()=>upd(r.id,{status:"planned",readOn:""})} title="Move back to the plan">✓</div>
               <div className="rp-card-main">
                 <input className="rp-co-inp" value={r.company} placeholder="Company…"
                   onChange={e=>upd(r.id,{company:e.target.value})}/>
                 <div className="rp-meta">
-                  <input className="rp-detail-inp" value={r.detail||""} placeholder="Notes — e.g. FY2024 10-K, key takeaway…"
-                    onChange={e=>upd(r.id,{detail:e.target.value})}/>
-                  <input className="rp-date" type="date" value={r.readOn||""} title="Date read"
+                  <span className="rp-depth">
+                    {REPORT_DEPTHS.map(([k,l])=>(
+                      <button key={k} className={`${depthOf(r)===k?"on":""}${k==="deep"?" deep":""}`}
+                        title={k==="new"?"A first look at this company":"A thorough dig into this company"}
+                        onClick={()=>upd(r.id,{depth:k})}>{l}</button>
+                    ))}
+                  </span>
+                  <ReportStart r={r} onSet={patch=>upd(r.id,patch)}/>
+                  <input className="rp-date" type="date" value={r.readOn||""} title="Finished on"
                     onChange={e=>upd(r.id,{readOn:e.target.value})}/>
+                  <button className={`rp-chip${openN[r.id]?" on":""}`} title="Notes"
+                    onClick={()=>setOpenN(o=>({...o,[r.id]:!o[r.id]}))}>
+                    ✎{(r.notes||[]).length?` ${r.notes.length}`:""}
+                  </button>
                 </div>
+                <ReportSpan r={r}/>
+                <ReportNotes r={r} open={!!openN[r.id]} onSet={patch=>upd(r.id,patch)}/>
               </div>
               <button className="goal-btn del" onClick={()=>del(r.id)}>×</button>
             </div>
           ))}
         </div>
       ))}
+        </>}
     </div>
   );
 });
@@ -3229,7 +3524,7 @@ const NAVS = [
   {key:"goals",  icon:"◈",  label:"Goals"},
   {key:"ideas",  icon:"✧",  label:"Ideas"},
   {key:"reading",icon:"❧",  label:"Books"},
-  {key:"reports",icon:"▤",  label:"Reports"},
+  {key:"reports",icon:"▤",  label:"Research"},
   {key:"month",  icon:"◫",  label:"Month"},
   {key:"search", icon:"⌕",  label:"Search"},
   {key:"habits", icon:"◐",  label:"Habits"},
