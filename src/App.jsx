@@ -114,6 +114,33 @@ const blankHabit  = () => ({ id:uid(), name:"" });
 const loadHabits  = () => { try{const r=localStorage.getItem(HABITS_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
 const saveHabits  = h => localStorage.setItem(HABITS_KEY, JSON.stringify(h));
 
+// Size a textarea to its content.
+//
+// Measuring means collapsing it to `auto` first, which briefly shortens the
+// page; if the view is scrolled past that point the browser clamps the scroll
+// and never puts it back — which is what reads as the window scrolling itself.
+// So the scroller's position is captured and restored around the measurement.
+//
+// Every tab stays mounted and merely hidden, and a hidden element measures
+// zero — writing that back would collapse the field. So a zero measurement
+// leaves the height alone and waits until the tab is actually shown.
+//
+// Defined once at module scope on purpose: passed as `ref={growTA}` its
+// identity is stable, so React attaches it on mount instead of detaching and
+// re-running it — and a forced re-layout per textarea per render was the other
+// half of the jumping.
+const growTA = el => {
+  if(!el || !el.isConnected) return;
+  const sc = el.closest(".main");
+  const keep = sc ? sc.scrollTop : null;
+  const before = el.style.height;
+  el.style.height = "auto";
+  const next = el.scrollHeight;
+  if(!next){ el.style.height = before; return; }
+  el.style.height = next + "px";
+  if(sc && sc.scrollTop !== keep) sc.scrollTop = keep;
+};
+
 // ─── Goals helpers ────────────────────────────────────────────────────────────
 const GOALS_KEY  = "myjournal_goals";
 const blankGoal  = () => ({ id:uid(), title:"", notes:[], start:"", target:"", week:"", month:"", timing:"date", done:false, doneP:{}, createdAt:nowTs(), updatedAt:nowTs(), steps:[] });
@@ -1419,7 +1446,6 @@ const JournalBlocks = memo(({ blocks, onChange }) => {
   const add = useCallback(()=>onChange([...blocks,{id:uid(),ts:nowTs(),text:""}]),[blocks,onChange]);
   const upd = useCallback((id,text)=>onChange(blocks.map(b=>b.id===id?{...b,text}:b)),[blocks,onChange]);
   const del = useCallback(id=>onChange(blocks.filter(b=>b.id!==id)),[blocks,onChange]);
-  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
   return (
     <div className="diary-blocks">
       {blocks.map(b=>(
@@ -1429,8 +1455,8 @@ const JournalBlocks = memo(({ blocks, onChange }) => {
             <button className="db-del" onClick={()=>del(b.id)}>×</button>
           </div>
           <textarea className="db-ta" value={b.text} placeholder="What's on your mind right now?"
-            onChange={e=>{upd(b.id,e.target.value);grow(e.target);}}
-            onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
+            onChange={e=>{upd(b.id,e.target.value);growTA(e.target);}}
+            onFocus={e=>growTA(e.target)} ref={growTA}/>
         </div>
       ))}
       <button className="add-row" onClick={add}>
@@ -1442,7 +1468,6 @@ const JournalBlocks = memo(({ blocks, onChange }) => {
 
 const BookCard = memo(({ book, num, onChange, onDelete }) => {
   const set        = useCallback((f,v)=>onChange({...book,[f]:v}),[book,onChange]);
-  const grow       = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
   const addSession = useCallback(()=>onChange({...book,sessions:[...(book.sessions||[]),blankSession()]}),[book,onChange]);
   const updSession = useCallback((id,f,v)=>onChange({...book,sessions:(book.sessions||[]).map(s=>s.id===id?{...s,[f]:v}:s)}),[book,onChange]);
   const delSession = useCallback(id=>onChange({...book,sessions:(book.sessions||[]).filter(s=>s.id!==id)}),[book,onChange]);
@@ -1501,8 +1526,8 @@ const BookCard = memo(({ book, num, onChange, onDelete }) => {
               <button className="book-del" onClick={()=>delNote(n.id)}>×</button>
             </div>
             <textarea className="bnote-ta" value={n.text} placeholder="Highlight, quote, or thought from this session…"
-              onChange={e=>{updNote(n.id,e.target.value);grow(e.target);}}
-              onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
+              onChange={e=>{updNote(n.id,e.target.value);growTA(e.target);}}
+              onFocus={e=>growTA(e.target)} ref={growTA}/>
           </div>
         ))}
       </div>
@@ -1539,7 +1564,6 @@ const MyQuotes = memo(({ quotes, onChange }) => {
   const add = useCallback(()=>onChange([...quotes,blankMyQuote()]),[quotes,onChange]);
   const upd = useCallback((id,f,v)=>onChange(quotes.map(q=>q.id===id?{...q,[f]:v}:q)),[quotes,onChange]);
   const del = useCallback(id=>onChange(quotes.filter(q=>q.id!==id)),[quotes,onChange]);
-  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
   return (
     <div className="quote-collector">
       {quotes.map(q=>(
@@ -1549,8 +1573,8 @@ const MyQuotes = memo(({ quotes, onChange }) => {
             <button className="mqc-del" onClick={()=>del(q.id)}>×</button>
           </div>
           <textarea className="mq-ta" value={q.text} placeholder="A quote that moved you…"
-            onChange={e=>{upd(q.id,"text",e.target.value);grow(e.target);}}
-            onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
+            onChange={e=>{upd(q.id,"text",e.target.value);growTA(e.target);}}
+            onFocus={e=>growTA(e.target)} ref={growTA}/>
           <input className="mq-src" value={q.source} placeholder="Source — book title, person, or 'my own reflection'"
             onChange={e=>upd(q.id,"source",e.target.value)}/>
         </div>
@@ -1574,7 +1598,6 @@ const GratList = memo(({ items, onChange }) => (
 
 // ─── Notes / Takeaways section ────────────────────────────────────────────────
 const NoteCard = memo(({ note, onChange, onDelete }) => {
-  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
   return (
     <div className="note-block">
       <div className="note-src-bar">
@@ -1587,8 +1610,8 @@ const NoteCard = memo(({ note, onChange, onDelete }) => {
       </div>
       <textarea className="db-ta" style={{fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif",fontSize:14,fontStyle:"normal",fontWeight:300,lineHeight:1.75}}
         value={note.text} placeholder="Key takeaway, insight, or idea…"
-        onChange={e=>{onChange({...note,text:e.target.value});grow(e.target);}}
-        onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
+        onChange={e=>{onChange({...note,text:e.target.value});growTA(e.target);}}
+        onFocus={e=>growTA(e.target)} ref={growTA}/>
     </div>
   );
 });
@@ -1718,7 +1741,6 @@ const HabitsView = memo(({ today, refreshKey }) => {
 const STAR_LABELS = ["","Weak","Maybe","Good","Strong","Must-do"];
 
 const IdeaCard = memo(({ idea, onChange, onDelete }) => {
-  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
   const set  = (f,v) => onChange({...idea,[f]:v});
   return (
     <div className="idea-card">
@@ -1729,8 +1751,8 @@ const IdeaCard = memo(({ idea, onChange, onDelete }) => {
       <input className="idea-title-inp" value={idea.title} placeholder="Idea title…"
         onChange={e=>set("title",e.target.value)}/>
       <textarea className="idea-desc-ta" value={idea.description} placeholder="What's the opportunity? Who does it help? Why now?"
-        onChange={e=>{set("description",e.target.value);grow(e.target);}}
-        onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
+        onChange={e=>{set("description",e.target.value);growTA(e.target);}}
+        onFocus={e=>growTA(e.target)} ref={growTA}/>
       <div className="idea-rank-row">
         <span className="idea-rank-lbl">Conviction</span>
         {[1,2,3,4,5].map(s=>(
@@ -1894,7 +1916,6 @@ const PeriodStrip = memo(({ item, onToggleKey }) => {
 });
 
 const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, onDelete, onMove }) => {
-  const grow  = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
   const set   = (f,v)=>onChange({...goal,[f]:v});
   const steps = goal.steps||[];
   const real  = steps.filter(s=>s.title?.trim());
@@ -1987,8 +2008,8 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
                   <button className="goal-btn del" onClick={()=>delNote(nt.id)}>×</button>
                 </div>
                 <textarea className="gnote-ta" value={nt.text} placeholder="A note on this goal…"
-                  onChange={e=>{updNote(nt.id,e.target.value);grow(e.target);}}
-                  onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
+                  onChange={e=>{updNote(nt.id,e.target.value);growTA(e.target);}}
+                  onFocus={e=>growTA(e.target)} ref={growTA}/>
               </div>
             ))}
           </div>
@@ -2400,6 +2421,7 @@ const GoalsView = memo(({ refreshKey }) => {
     const g={...blankGoal(), timing:"week", week:wk};
     persist([g,...loadGoals()]);
     setNewId(g.id);
+    setTimeout(()=>setNewId(null),1200);     // only the first mount should grab focus
   },[persist]);
 
   const delGoal = useCallback(id=>persist(loadGoals().filter(g=>g.id!==id)),[persist]);
@@ -2594,7 +2616,6 @@ const ReportSpan = memo(({ r }) => {
 });
 
 const ResearchNote = memo(({ note, dateLabel, autoFocus, onChange, onDelete }) => {
-  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
   const href = safeUrl(note.link);
   return (
     <div className="gnote">
@@ -2612,8 +2633,8 @@ const ResearchNote = memo(({ note, dateLabel, autoFocus, onChange, onDelete }) =
       </div>
       <textarea className="gnote-ta" value={note.text} autoFocus={autoFocus}
         placeholder="What stood out? Numbers, risks, questions…"
-        onChange={e=>{onChange({text:e.target.value});grow(e.target);}}
-        onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
+        onChange={e=>{onChange({text:e.target.value});growTA(e.target);}}
+        onFocus={e=>growTA(e.target)} ref={growTA}/>
     </div>
   );
 });
@@ -2749,6 +2770,7 @@ const ReportsView = memo(({ refreshKey }) => {
       persist([{...blankReport("read",everDeep?"deep":"new"), company:name, notes:[note]}, ...list]);
     }
     setNewNote(note.id);
+    setTimeout(()=>setNewNote(null),1200);   // only the first mount should grab focus
   };
 
   const shown   = filter==="all" ? reports : reports.filter(r=>depthOf(r)===filter);
@@ -2914,7 +2936,6 @@ const ReportsView = memo(({ refreshKey }) => {
 const BookNoteCard = memo(({ note, first, autoFocus, onSave, onDelete, onOpenDay }) => {
   const [text, setText] = useState(note.text);
   const timer = useRef(null);
-  const grow  = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
 
   // keep in sync if the underlying note changes (e.g. after a Drive pull)
   useEffect(()=>setText(note.text),[note.id,note.text]);
@@ -2935,8 +2956,8 @@ const BookNoteCard = memo(({ note, first, autoFocus, onSave, onDelete, onOpenDay
         <button className="book-del" onClick={onDelete}>×</button>
       </div>
       <textarea className="bnote-ta" value={text} placeholder="Reading note…" autoFocus={autoFocus}
-        onChange={e=>{handleChange(e.target.value);grow(e.target);}}
-        onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
+        onChange={e=>{handleChange(e.target.value);growTA(e.target);}}
+        onFocus={e=>growTA(e.target)} ref={growTA}/>
     </div>
   );
 });
@@ -2997,6 +3018,7 @@ const ReadingView = memo(({ refreshKey, today, onSelectDay, onEntriesChanged }) 
       : [...list, {id:uid(), title, author:author||"", sessions:[], notes:[note]}];
     save(today,{...e, books});
     setNewNoteId(note.id);
+    setTimeout(()=>setNewNoteId(null),1200);  // only the first mount should grab focus
     setTick(t=>t+1);
     onEntriesChanged?.();
   },[today, onEntriesChanged]);
@@ -3402,7 +3424,7 @@ const MonthView = memo(({ calMonth, setCalMonth, entrySet, selectedDate, today, 
 });
 
 // ─── SearchView ───────────────────────────────────────────────────────────────
-const SearchView = memo(({ entries, onSelect }) => {
+const SearchView = memo(({ entries, onSelect, active }) => {
   const [q,setQ] = useState("");
   const results  = q.trim()
     ? entries.filter(e=>{
@@ -3425,7 +3447,7 @@ const SearchView = memo(({ entries, onSelect }) => {
       <h1 className="pg-title">Find a <em>moment</em></h1>
       <div style={{height:20}}/>
       <div className="sb-wrap">
-        <input className="sb-inp" value={q} placeholder="Search journal, investing notes, books, quotes, locations…" onChange={e=>setQ(e.target.value)} autoFocus/>
+        <input className="sb-inp" value={q} placeholder="Search journal, investing notes, books, quotes, locations…" onChange={e=>setQ(e.target.value)} ref={el=>{if(el&&active)el.focus();}}/>
         <span className="sb-ico">⌕</span>
       </div>
       {q&&!results.length&&<div className="no-res">Nothing found for "{q}"</div>}
@@ -3923,7 +3945,7 @@ export default function App() {
             <MonthView calMonth={calMonth} setCalMonth={setCalMonth} entrySet={entrySet} selectedDate={selDate} today={today} streak={streak} totalDays={totalDays} onSelect={selectDay}/>
           </div>
           <div style={{display:tab==="search"?"block":"none"}}>
-            <SearchView entries={entries} onSelect={selectDay}/>
+            <SearchView entries={entries} onSelect={selectDay} active={tab==="search"}/>
           </div>
           <div style={{display:tab==="habits"?"block":"none"}}>
             <HabitsView today={today} refreshKey={habitsTick}/>
