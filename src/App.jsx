@@ -1330,9 +1330,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .main{padding-bottom:64px;}
   .toast{bottom:80px;right:16px;}
   .book-fields{grid-template-columns:1fr;}
-  /* Prevent iOS auto-zoom on input focus (triggered when font-size < 16px) */
-  .ti,.loc-inp,.db-ta,.bf-inp,.mq-ta,.gi,.idea-title-inp,.idea-desc-ta,.bnote-ta,
-  .goal-title-inp,.gnote-ta,.step-inp,.rp-add-inp,.rp-co-inp,.rn-link,.gt-title,.wp-goal-inp,.wp-step-inp{font-size:16px;}
+  /* Safari zooms the page in whenever a focused input, select or textarea is
+     under 16px, which reads as the window jumping. Matched by element rather
+     than by an ever-growing class list, so a control added later can't miss it. */
+  .app input,.app select,.app textarea{font-size:16px;}
+  /* compact controls need room once their text grows to 16px */
+  .step-sched,.mins-row{flex-wrap:wrap;}
+  .step-date{width:36px;} .step-date.set{width:136px;}
+  .rn-kind,.goal-week,.tim-sel,.step-week{max-width:none;}
+  .bf-time{width:auto;}
   /* the date pickers stay small — they open a native picker, so no zoom risk */
   .step-date.set{width:92px;}
 }
@@ -1424,7 +1430,7 @@ const JournalBlocks = memo(({ blocks, onChange }) => {
           </div>
           <textarea className="db-ta" value={b.text} placeholder="What's on your mind right now?"
             onChange={e=>{upd(b.id,e.target.value);grow(e.target);}}
-            onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+            onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
         </div>
       ))}
       <button className="add-row" onClick={add}>
@@ -1496,7 +1502,7 @@ const BookCard = memo(({ book, num, onChange, onDelete }) => {
             </div>
             <textarea className="bnote-ta" value={n.text} placeholder="Highlight, quote, or thought from this session…"
               onChange={e=>{updNote(n.id,e.target.value);grow(e.target);}}
-              onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+              onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
           </div>
         ))}
       </div>
@@ -1544,7 +1550,7 @@ const MyQuotes = memo(({ quotes, onChange }) => {
           </div>
           <textarea className="mq-ta" value={q.text} placeholder="A quote that moved you…"
             onChange={e=>{upd(q.id,"text",e.target.value);grow(e.target);}}
-            onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+            onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
           <input className="mq-src" value={q.source} placeholder="Source — book title, person, or 'my own reflection'"
             onChange={e=>upd(q.id,"source",e.target.value)}/>
         </div>
@@ -1582,7 +1588,7 @@ const NoteCard = memo(({ note, onChange, onDelete }) => {
       <textarea className="db-ta" style={{fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif",fontSize:14,fontStyle:"normal",fontWeight:300,lineHeight:1.75}}
         value={note.text} placeholder="Key takeaway, insight, or idea…"
         onChange={e=>{onChange({...note,text:e.target.value});grow(e.target);}}
-        onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+        onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
     </div>
   );
 });
@@ -1724,7 +1730,7 @@ const IdeaCard = memo(({ idea, onChange, onDelete }) => {
         onChange={e=>set("title",e.target.value)}/>
       <textarea className="idea-desc-ta" value={idea.description} placeholder="What's the opportunity? Who does it help? Why now?"
         onChange={e=>{set("description",e.target.value);grow(e.target);}}
-        onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+        onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
       <div className="idea-rank-row">
         <span className="idea-rank-lbl">Conviction</span>
         {[1,2,3,4,5].map(s=>(
@@ -1982,7 +1988,7 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
                 </div>
                 <textarea className="gnote-ta" value={nt.text} placeholder="A note on this goal…"
                   onChange={e=>{updNote(nt.id,e.target.value);grow(e.target);}}
-                  onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+                  onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
               </div>
             ))}
           </div>
@@ -2607,7 +2613,7 @@ const ResearchNote = memo(({ note, dateLabel, autoFocus, onChange, onDelete }) =
       <textarea className="gnote-ta" value={note.text} autoFocus={autoFocus}
         placeholder="What stood out? Numbers, risks, questions…"
         onChange={e=>{onChange({text:e.target.value});grow(e.target);}}
-        onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+        onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
     </div>
   );
 });
@@ -2930,7 +2936,7 @@ const BookNoteCard = memo(({ note, first, autoFocus, onSave, onDelete, onOpenDay
       </div>
       <textarea className="bnote-ta" value={text} placeholder="Reading note…" autoFocus={autoFocus}
         onChange={e=>{handleChange(e.target.value);grow(e.target);}}
-        onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+        onFocus={e=>grow(e.target)} ref={el=>{if(el&&!el.style.height)grow(el);}}/>
     </div>
   );
 });
