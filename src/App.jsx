@@ -920,6 +920,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .wp-day.today .wp-day-cnt{color:#dce7f2;}
 .wp-goal{background:white;border:1.5px solid #dde6ef;border-radius:10px;padding:13px 15px;margin-bottom:11px;}
 .wp-goal.done{opacity:.55;}
+.wp-goal.gt-drop-into{border-color:#5a7fa8;background:#eef4fa;}
+.wp-step.gt-drop-into{background:#eef4fa;border-radius:7px;}
+.wp-step{border:1.5px solid transparent;}
 .wp-goal-hd{display:flex;align-items:center;gap:9px;}
 .wp-goal-inp{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:'Playfair Display',serif;font-size:16px;font-weight:600;color:#1a1a1a;}
 .wp-goal-inp::placeholder{color:#ccc;font-weight:400;}
@@ -1911,18 +1914,17 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
   );
 });
 
-// ─── GoalTree ─────────────────────────────────────────────────────────────────
-// Big goals branch into smaller ones, reorderable by dragging the grip. Uses
-// pointer events rather than HTML5 drag-and-drop, which does not fire on touch
-// screens — so this works the same with a finger as with a mouse.
-const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
+// Pointer-based drag reordering, shared by the tree and the week planner so the
+// two behave identically. Pointer events rather than HTML5 drag-and-drop, which
+// never fires on touch screens — this works the same with a finger as a mouse.
+const useDragReorder = onCommit => {
   const [drag, setDrag] = useState(null);   // {kind:"goal"|"step", id}
   const [over, setOver] = useState(null);   // {kind, id, pos:"before"|"after"|"into"}
   const dragRef = useRef(null), overRef = useRef(null), nodes = useRef(new Map());
 
   const reg = (id, kind, el) => { if(el) nodes.current.set(id,{el,kind}); else nodes.current.delete(id); };
 
-  const hitTest = (x,y) => {
+  const hitTest = y => {
     const d = dragRef.current; if(!d) return null;
     let hit = null;
     nodes.current.forEach((meta,id)=>{
@@ -1950,7 +1952,7 @@ const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
   };
   const onMove = e => {
     if(!dragRef.current) return;
-    const hit = hitTest(e.clientX,e.clientY);
+    const hit = hitTest(e.clientY);
     overRef.current = hit; setOver(hit);
     // nudge the scroller when dragging near the top or bottom edge
     const sc=document.querySelector(".main"); const m=70;
@@ -1974,6 +1976,13 @@ const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
       onPointerDown={e=>onDown(e,kind,id)} onPointerMove={onMove}
       onPointerUp={onUp} onPointerCancel={onUp}>⠿</span>
   );
+
+  return { drag, reg, grip, dropCls };
+};
+
+// ─── GoalTree ─────────────────────────────────────────────────────────────────
+const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
+  const { drag, reg, grip, dropCls } = useDragReorder(onCommit);
 
   if(!goals.length) return (
     <div className="empty" style={{marginTop:16}}>No goals yet. Add a big one above to start the tree.</div>
@@ -2030,7 +2039,8 @@ const GoalTree = memo(({ goals, onCommit, onEdit, onDelete }) => {
 // Goals scoped to the shown week, each breakable into smaller goals; give a
 // smaller goal a day and it becomes that day's goal. Recurring weekly goals and
 // anything dated inside the week are listed too, so the week is complete.
-const WeekPlanner = memo(({ goals, weekK, newId, onWeek, onEdit, onAdd, onDelete }) => {
+const WeekPlanner = memo(({ goals, weekK, newId, onWeek, onEdit, onAdd, onDelete, onCommit }) => {
+  const { drag, reg, grip, dropCls } = useDragReorder(onCommit);
   const p       = parseWeekKey(weekK) || parseWeekKey(thisWeekKey());
   const days    = weekDays(weekK);
   const today   = todayKey();
@@ -2091,8 +2101,10 @@ const WeekPlanner = memo(({ goals, weekK, newId, onWeek, onEdit, onAdd, onDelete
       {mine.map(g=>{
         const steps=orderedSteps(g.steps);
         return (
-          <div key={g.id} className={`wp-goal${periodDone(g)?" done":""}`}>
+          <div key={g.id} className={`wp-goal${periodDone(g)?" done":""}${drag?.id===g.id?" gt-dragging":""}${dropCls(g.id)}`}
+            ref={el=>reg(g.id,"goal",el)}>
             <div className="wp-goal-hd">
+              {grip("goal",g.id)}
               <div className={`ck${periodDone(g)?" done":""}`} onClick={()=>onEdit(g.id,togglePatch(g))}>{periodDone(g)&&"✓"}</div>
               <input className={`wp-goal-inp${periodDone(g)?" struck":""}`} value={g.title} autoFocus={g.id===newId}
                 placeholder={`A goal for W${p.week}…`} onChange={e=>onEdit(g.id,{title:e.target.value})}/>
@@ -2100,8 +2112,10 @@ const WeekPlanner = memo(({ goals, weekK, newId, onWeek, onEdit, onAdd, onDelete
             </div>
             <div className="wp-steps">
               {steps.map(s=>(
-                <div key={s.id} className="wp-step">
+                <div key={s.id} className={`wp-step${drag?.id===s.id?" gt-dragging":""}${dropCls(s.id)}`}
+                  ref={el=>reg(s.id,"step",el)}>
                   <div className="wp-step-top">
+                    {grip("step",s.id)}
                     <div className={`ck${periodDone(s)?" done":""}`}
                       onClick={()=>setStep(g,s.id,togglePatch(s))}>{periodDone(s)&&"✓"}</div>
                     <input className={`wp-step-inp${periodDone(s)?" struck":""}`} value={s.title}
@@ -2132,6 +2146,7 @@ const WeekPlanner = memo(({ goals, weekK, newId, onWeek, onEdit, onAdd, onDelete
       })}
 
       <button className="add-row" onClick={()=>onAdd(weekK)}>+ Add a goal for W{p.week}</button>
+      {mine.length>1&&<div className="gt-hint" style={{marginTop:10}}>Drag ⠿ to reorder, or drop a smaller goal onto another goal to move it there.</div>}
 
       {(recur.length>0||dated.length>0)&&(
         <div className="wp-also">
@@ -2433,7 +2448,7 @@ const GoalsView = memo(({ refreshKey }) => {
           </div>
           {wkMode==="plan"
             ?<WeekPlanner goals={goals} weekK={weekK} newId={newId} onWeek={setWeekK}
-               onEdit={editGoal} onAdd={addWeekGoal} onDelete={delGoal}/>
+               onEdit={editGoal} onAdd={addWeekGoal} onDelete={delGoal} onCommit={commitDrag}/>
             :<GoalPeriods goals={goals} unit="week" onEdit={editGoal}/>}
         </>
       )}
