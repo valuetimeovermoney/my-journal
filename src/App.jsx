@@ -384,6 +384,7 @@ const REPORTS_KEY = "myjournal_reports";
 const REPORT_DEPTHS = [["new","New"],["deep","Deep dive"]];
 // Anything saved before this existed reads as a first look.
 const depthOf = r => r?.depth==="deep" ? "deep" : "new";
+const normCompany = c => (c||"").trim().toLowerCase();
 const blankReport = (status="planned", depth="new") => ({ id:uid(), company:"", notes:[], status, depth, start:"", due:"", readOn:status==="read"?todayKey():"", createdAt:nowTs(), updatedAt:nowTs() });
 
 // The old single-line "detail" becomes the first note, so anything already
@@ -1036,6 +1037,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .gw-parent{font-size:10px;color:#a8b8c8;flex-shrink:0;max-width:36%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 /* ── reports view (company research tracker) ── */
+.rc-co{background:white;border-radius:10px;padding:16px 18px;margin-bottom:14px;border:1.5px solid #e2ece3;}
+.rc-hd{margin-bottom:13px;padding-bottom:11px;border-bottom:1px solid #f0f6f0;}
+.rc-name{font-family:'Playfair Display',serif;font-size:17px;font-weight:600;color:#1a1a1a;line-height:1.3;}
+.rc-badge{display:inline-block;margin-left:8px;padding:2px 9px;border-radius:20px;background:#4a6fa5;color:white;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;font-weight:600;vertical-align:middle;}
+.rc-stats{display:flex;gap:12px;flex-wrap:wrap;margin-top:7px;font-size:11px;color:#a8c0ab;}
+.rc-stats strong{color:#5a9a60;font-weight:600;}
+.rc-note{padding-top:12px;margin-top:12px;border-top:1px solid #f4f9f4;}
+.rc-note.first{padding-top:0;margin-top:0;border-top:none;}
+.rc-note-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;}
+.rc-note-date{font-size:10px;color:#5a9a60;font-weight:500;letter-spacing:.3px;}
 .rp-notes{margin-top:9px;padding-top:9px;border-top:1px solid #eef4ee;}
 .reports-view .gnote{background:#f4faf5;}
 .reports-view .gnote:focus-within{border-color:#5a9a6050;}
@@ -2581,12 +2592,84 @@ const ReportNotes = memo(({ r, open, onSet }) => {
   );
 });
 
+// Every note ever written about a company, gathered under it — sessions are how
+// the work gets logged, but the research itself accumulates per company.
+const ResearchByCompany = memo(({ reports, newNoteId, onNoteChange, onNoteDelete, onAddNote }) => {
+  const companies = useMemo(()=>{
+    const map = new Map();
+    // reports is newest-first, so the first spelling seen is the current one
+    reports.forEach(r=>{
+      const key = normCompany(r.company); if(!key) return;
+      if(!map.has(key)) map.set(key,{key,name:r.company.trim(),sessions:0,deep:false,notes:[],first:"",last:""});
+      const rec = map.get(key);
+      rec.sessions++;
+      if(depthOf(r)==="deep") rec.deep = true;
+      const d = r.status==="read" ? (r.readOn||"") : (r.due||"");
+      if(d){ if(!rec.first||d<rec.first) rec.first=d; if(d>rec.last) rec.last=d; }
+      (r.notes||[]).forEach(nt=>rec.notes.push({...nt, entryId:r.id, entryDate:d}));
+    });
+    return [...map.values()]
+      .map(c=>({...c, notes:c.notes.sort((a,b)=>(Number(b.ts)||0)-(Number(a.ts)||0))}))
+      .sort((a,b)=>(b.last||"").localeCompare(a.last||"") || b.notes.length-a.notes.length);
+  },[reports]);
+
+  const grow = el=>{if(!el)return;el.style.height="auto";el.style.height=el.scrollHeight+"px";};
+
+  if(!companies.length) return (
+    <div className="rv-no-notes" style={{marginTop:12}}>No companies yet. Add one above to start a research log.</div>
+  );
+
+  return (
+    <div>
+      {companies.map(c=>(
+        <div key={c.key} className="rc-co">
+          <div className="rc-hd">
+            <div className="rc-name">
+              {c.name}
+              {c.deep&&<span className="rc-badge">Deep dive</span>}
+            </div>
+            <div className="rc-stats">
+              <span><strong>{c.sessions}</strong> session{c.sessions!==1?"s":""}</span>
+              <span><strong>{c.notes.length}</strong> note{c.notes.length!==1?"s":""}</span>
+              {c.first&&<span>first {fmtDate(c.first,{month:"short",day:"numeric"})}</span>}
+              {c.last&&c.last!==c.first&&<span>latest {fmtDate(c.last,{month:"short",day:"numeric"})}</span>}
+            </div>
+          </div>
+
+          {c.notes.map((nt,i)=>(
+            <div key={`${nt.entryId}-${nt.id}`} className={`rc-note${i===0?" first":""}`}>
+              <div className="rc-note-hd">
+                <span className="rc-note-date">
+                  {nt.ts
+                    ? `${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric",year:"numeric"})} · ${fmtTime(nt.ts)}`
+                    : nt.entryDate ? fmtDate(nt.entryDate,{month:"short",day:"numeric",year:"numeric"}) : "earlier"}
+                </span>
+                <button className="goal-btn del" onClick={()=>onNoteDelete(nt.entryId,nt.id)}>×</button>
+              </div>
+              <textarea className="gnote-ta" value={nt.text} autoFocus={nt.id===newNoteId}
+                placeholder="What stood out? Numbers, risks, questions…"
+                onChange={e=>{onNoteChange(nt.entryId,nt.id,e.target.value);grow(e.target);}}
+                onFocus={e=>grow(e.target)} ref={el=>{if(el)grow(el);}}/>
+            </div>
+          ))}
+
+          <button className="goal-add-step" style={{marginTop:12}} onClick={()=>onAddNote(c.name)}>
+            + Add a note on {c.name} · {fmtTime(nowTs())}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+});
+
 const ReportsView = memo(({ refreshKey }) => {
   const [reports, setReports] = useState(()=>loadReports());
   const [draft,   setDraft]   = useState("");
   const [adding,  setAdding]  = useState("new");   // depth applied to new entries
   const [filter,  setFilter]  = useState("all");
   const [openN,   setOpenN]   = useState({});      // which cards have notes expanded
+  const [view,    setView]    = useState("log");   // "log" | "company"
+  const [newNote, setNewNote] = useState(null);
 
   useEffect(()=>setReports(loadReports()),[refreshKey]);
 
@@ -2603,6 +2686,29 @@ const ReportsView = memo(({ refreshKey }) => {
   };
   const upd = (id,patch)=>persist(loadReports().map(r=>r.id===id?stamp({...r,...patch}):r));
   const del = id=>persist(loadReports().filter(r=>r.id!==id));
+
+  // The by-company view edits notes belonging to whichever entry holds them.
+  const noteChange = (entryId,noteId,text)=>{
+    const e=loadReports().find(x=>x.id===entryId); if(!e) return;
+    upd(entryId,{notes:(e.notes||[]).map(nt=>nt.id===noteId?{...nt,text}:nt)});
+  };
+  const noteDelete = (entryId,noteId)=>{
+    const e=loadReports().find(x=>x.id===entryId); if(!e) return;
+    upd(entryId,{notes:(e.notes||[]).filter(nt=>nt.id!==noteId)});
+  };
+  // A note written today is research done today: it joins today's entry for
+  // that company, or opens one if there isn't yet, keeping the log honest.
+  const addCompanyNote = name=>{
+    const list=loadReports(), key=normCompany(name);
+    const note={id:uid(),ts:nowTs(),text:""};
+    const todays=list.find(r=>normCompany(r.company)===key&&r.status==="read"&&r.readOn===todayKey());
+    if(todays) upd(todays.id,{notes:[...(todays.notes||[]),note]});
+    else {
+      const everDeep=list.some(r=>normCompany(r.company)===key&&depthOf(r)==="deep");
+      persist([{...blankReport("read",everDeep?"deep":"new"), company:name, notes:[note]}, ...list]);
+    }
+    setNewNote(note.id);
+  };
 
   const shown   = filter==="all" ? reports : reports.filter(r=>depthOf(r)===filter);
   const newN    = reports.filter(r=>depthOf(r)==="new").length;
@@ -2637,6 +2743,11 @@ const ReportsView = memo(({ refreshKey }) => {
         </p>
       )}
 
+      <div className="gv-sort" style={{marginBottom:14}}>
+        <button className={`gv-sort-btn${view==="log"?" active":""}`} onClick={()=>setView("log")}>Plan &amp; log</button>
+        <button className={`gv-sort-btn${view==="company"?" active":""}`} onClick={()=>setView("company")}>By company</button>
+      </div>
+
       <div className="rp-add">
         <input className="rp-add-inp" value={draft} placeholder="Company — e.g. Apple (AAPL)"
           onChange={e=>setDraft(e.target.value)}
@@ -2665,6 +2776,10 @@ const ReportsView = memo(({ refreshKey }) => {
         </>}
       </div>
 
+      {view==="company"
+        ?<ResearchByCompany reports={shown} newNoteId={newNote}
+           onNoteChange={noteChange} onNoteDelete={noteDelete} onAddNote={addCompanyNote}/>
+        :<>
       <div className="rp-sec-hd">Research Plan</div>
       {planned.length===0&&<div className="rv-no-notes" style={{marginTop:8}}>
         {filtered&&allPlanned.length>0 ? "No planned companies match this filter."
@@ -2749,6 +2864,7 @@ const ReportsView = memo(({ refreshKey }) => {
           ))}
         </div>
       ))}
+        </>}
     </div>
   );
 });
