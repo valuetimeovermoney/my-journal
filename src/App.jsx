@@ -408,6 +408,12 @@ const saveIdeas  = ideas => localStorage.setItem(IDEAS_KEY, JSON.stringify(ideas
 
 // ─── Annual report tracker helpers ────────────────────────────────────────────
 const REPORTS_KEY = "myjournal_reports";
+// Things to read: filings, articles, videos queued up before they are read.
+// Separate from the company plan, which queues companies rather than documents.
+const READING_KEY = "myjournal_reading";
+const blankRead  = () => ({ id:uid(), title:"", kind:"", link:"", company:"", done:false, doneOn:"", createdAt:nowTs(), updatedAt:nowTs() });
+const loadReading = () => { try{const r=localStorage.getItem(READING_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
+const saveReading = r => localStorage.setItem(READING_KEY, JSON.stringify(r));
 const REPORT_DEPTHS = [["new","New"],["deep","Deep dive"]];
 // What a note came from. Filings first, since those are the bulk of it.
 const SOURCE_KINDS = [
@@ -680,7 +686,7 @@ const getDriveFileId = async token => {
 };
 const saveToDrive = async (entries, token) => {
   if(!token) token=await getToken();
-  const content=JSON.stringify({v:2,entries,habits:loadHabits(),ideas:loadIdeas(),goals:loadGoals(),reports:loadReports()},null,2);
+  const content=JSON.stringify({v:2,entries,habits:loadHabits(),ideas:loadIdeas(),goals:loadGoals(),reports:loadReports(),reading:loadReading()},null,2);
   const fileId=await getDriveFileId(token);
   let url;
   if(!fileId){
@@ -746,6 +752,12 @@ const mergeAndSaveToDrive = async (localEntries, token) => {
         const local=loadReports();
         const mergedR=mergeByNewer(local,driveReports);
         if(stableStr(mergedR)!==stableStr(local)) saveReports(mergedR);
+      }
+      const driveReading = Array.isArray(driveData.reading)?driveData.reading:[];
+      if(driveReading.length){
+        const local=loadReading();
+        const mergedL=mergeByNewer(local,driveReading);
+        if(stableStr(mergedL)!==stableStr(local)) saveReading(mergedL);
       }
     }
   } catch {}
@@ -1107,6 +1119,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .rn-open{flex-shrink:0;text-decoration:none;color:#5a9a60;font-size:13px;padding:0 2px;line-height:1;}
 .rn-open:hover{color:#3f7a48;}
 .rc-kind{padding:1px 8px;border-radius:20px;background:#eef6ef;color:#6f9c77;font-size:10px;font-weight:600;}
+.rl-co{flex:1;min-width:100px;border:none;outline:none;background:transparent;border-bottom:1px solid #eef4ee;padding:1px 0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#8aa890;transition:border-color .2s;}
+.rl-co:focus{border-color:#5a9a60;}
+.rl-co::placeholder{color:#ccd8cc;}
+.rp-co-inp.struck{text-decoration:line-through;color:#aaa;}
 .rc-co{background:white;border-radius:10px;padding:16px 18px;margin-bottom:14px;border:1.5px solid #e2ece3;}
 .rc-hd{margin-bottom:13px;padding-bottom:11px;border-bottom:1px solid #f0f6f0;}
 .rc-name{font-family:'Playfair Display',serif;font-size:17px;font-weight:600;color:#1a1a1a;line-height:1.3;}
@@ -2752,16 +2768,88 @@ const ResearchByCompany = memo(({ reports, newNoteId, onNoteChange, onNoteDelete
   );
 });
 
+const ReadingList = memo(({ items, onAdd, onSet, onDelete }) => {
+  const [draft, setDraft] = useState("");
+  const submit = ()=>{ const t=draft.trim(); if(!t) return; onAdd(t); setDraft(""); };
+  const todo = items.filter(i=>!i.done).sort((a,b)=>(Number(b.createdAt)||0)-(Number(a.createdAt)||0));
+  const done = items.filter(i=>i.done).sort((a,b)=>(b.doneOn||"").localeCompare(a.doneOn||""));
+
+  const row = i => {
+    const href = safeUrl(i.link);
+    return (
+      <div key={i.id} className={`rp-card${i.done?" read":""}`}>
+        <div className={`ck${i.done?" done":""}`}
+          title={i.done?"Move back to unread":"Mark as read today"}
+          onClick={()=>onSet(i.id, i.done?{done:false,doneOn:""}:{done:true,doneOn:todayKey()})}>{i.done&&"✓"}</div>
+        <div className="rp-card-main">
+          <input className={`rp-co-inp${i.done?" struck":""}`} value={i.title} placeholder="What to read…"
+            onChange={e=>onSet(i.id,{title:e.target.value})}/>
+          <div className="rp-meta">
+            <select className="rn-kind" value={i.kind||""} title="What is it?"
+              onChange={e=>onSet(i.id,{kind:e.target.value})}>
+              <option value="">Type…</option>
+              {SOURCE_KINDS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+            </select>
+            <input className="rn-link" value={i.link||""} placeholder="Paste a link…"
+              onChange={e=>onSet(i.id,{link:e.target.value})}/>
+            {href&&<a className="rn-open" href={href} target="_blank" rel="noreferrer noopener" title={href}>↗</a>}
+            <input className="rl-co" value={i.company||""} placeholder="Company (optional)"
+              onChange={e=>onSet(i.id,{company:e.target.value})}/>
+            {i.done&&i.doneOn&&<span className="span-lbl">read {fmtDate(i.doneOn,{month:"short",day:"numeric"})}</span>}
+          </div>
+        </div>
+        <button className="goal-btn del" onClick={()=>onDelete(i.id)}>×</button>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div className="rp-add">
+        <input className="rp-add-inp" value={draft}
+          placeholder="Paste a link, or type what you want to read…"
+          onChange={e=>setDraft(e.target.value)}
+          onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();submit();}}}/>
+        <button className="rp-btn solid" onClick={submit}>+ Add to read</button>
+      </div>
+
+      <div className="rp-sec-hd">To read</div>
+      {todo.length===0&&<div className="rv-no-notes" style={{marginTop:8}}>
+        Nothing queued. Paste a link above — a 10-K, an article, a video — and it lands here.
+      </div>}
+      {todo.map(row)}
+
+      {done.length>0&&<>
+        <div className="rp-sec-hd" style={{marginTop:30}}>Read</div>
+        {done.map(row)}
+      </>}
+    </div>
+  );
+});
+
 const ReportsView = memo(({ refreshKey }) => {
   const [reports, setReports] = useState(()=>loadReports());
   const [draft,   setDraft]   = useState("");
   const [adding,  setAdding]  = useState("new");   // depth applied to new entries
   const [filter,  setFilter]  = useState("all");
   const [openN,   setOpenN]   = useState({});      // which cards have notes expanded
-  const [view,    setView]    = useState("log");   // "log" | "company"
+  const [view,    setView]    = useState("log");   // "log" | "reading" | "company"
+  const [reading, setReading] = useState(()=>loadReading());
   const [newNote, setNewNote] = useState(null);
 
-  useEffect(()=>setReports(loadReports()),[refreshKey]);
+  useEffect(()=>{ setReports(loadReports()); setReading(loadReading()); },[refreshKey]);
+
+  const persistR = next=>{ setReading(next); saveReading(next); };
+  // A pasted link gets its host as a starting title, which beats an empty row
+  // and can be typed over; anything else is taken as the title as written.
+  const addRead = text=>{
+    const item={...blankRead()};
+    if(/^(?:https?:\/\/|www\.)/i.test(text)){ item.link=text; item.title=hostOf(text); }
+    else item.title=text;
+    persistR([item, ...loadReading()]);
+  };
+  const setRead = (id,patch)=>persistR(loadReading().map(i=>i.id===id?{...i,...patch,updatedAt:nowTs()}:i));
+  const delRead = id=>persistR(loadReading().filter(i=>i.id!==id));
 
   const persist = next=>{ setReports(next); saveReports(next); };
   const stamp   = r=>({...r, updatedAt:nowTs()});
@@ -2836,9 +2924,11 @@ const ReportsView = memo(({ refreshKey }) => {
 
       <div className="gv-sort" style={{marginBottom:14}}>
         <button className={`gv-sort-btn${view==="log"?" active":""}`} onClick={()=>setView("log")}>Plan &amp; log</button>
+        <button className={`gv-sort-btn${view==="reading"?" active":""}`} onClick={()=>setView("reading")}>Reading list</button>
         <button className={`gv-sort-btn${view==="company"?" active":""}`} onClick={()=>setView("company")}>By company</button>
       </div>
 
+      {view!=="reading"&&<>
       <div className="rp-add">
         <input className="rp-add-inp" value={draft} placeholder="Company — e.g. Apple (AAPL)"
           onChange={e=>setDraft(e.target.value)}
@@ -2867,7 +2957,11 @@ const ReportsView = memo(({ refreshKey }) => {
         </>}
       </div>
 
-      {view==="company"
+      </>}
+
+      {view==="reading"
+        ?<ReadingList items={reading} onAdd={addRead} onSet={setRead} onDelete={delRead}/>
+        :view==="company"
         ?<ResearchByCompany reports={shown} newNoteId={newNote}
            onNoteChange={noteChange} onNoteDelete={noteDelete} onAddNote={addCompanyNote}/>
         :<>
@@ -3688,6 +3782,12 @@ export default function App() {
           const mergedR=mergeByNewer(local,driveReports);
           if(stableStr(mergedR)!==stableStr(local)){saveReports(mergedR);setReportsTick(t=>t+1);}
         }
+        const driveReading=Array.isArray(driveData.reading)?driveData.reading:[];
+        if(driveReading.length){
+          const local=loadReading();
+          const mergedL=mergeByNewer(local,driveReading);
+          if(stableStr(mergedL)!==stableStr(local)){saveReading(mergedL);setReportsTick(t=>t+1);}
+        }
         if(count>0){
           setEntries(allEntries());
           setEntry(load(selDate));
@@ -3785,6 +3885,12 @@ export default function App() {
         const mergedR=mergeByNewer(local,driveReports);
         if(stableStr(mergedR)!==stableStr(local)){saveReports(mergedR);setReportsTick(t=>t+1);}
       }
+      const driveReading=Array.isArray(driveData.reading)?driveData.reading:[];
+      if(driveReading.length){
+        const local=loadReading();
+        const mergedL=mergeByNewer(local,driveReading);
+        if(stableStr(mergedL)!==stableStr(local)){saveReading(mergedL);setReportsTick(t=>t+1);}
+      }
       lastPullRef.current=Date.now();
       setEntries(allEntries());
       setEntry(load(selDate));
@@ -3860,6 +3966,12 @@ export default function App() {
         const local=loadReports();
         const mergedR=mergeByNewer(local,driveReports);
         if(stableStr(mergedR)!==stableStr(local)){saveReports(mergedR);setReportsTick(t=>t+1);}
+      }
+      const driveReading=Array.isArray(driveData.reading)?driveData.reading:[];
+      if(driveReading.length){
+        const local=loadReading();
+        const mergedL=mergeByNewer(local,driveReading);
+        if(stableStr(mergedL)!==stableStr(local)){saveReading(mergedL);setReportsTick(t=>t+1);}
       }
       setEntries(allEntries());
       setEntry(load(selDate));
