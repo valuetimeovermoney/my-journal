@@ -411,14 +411,15 @@ const REPORTS_KEY = "myjournal_reports";
 // Things to read: filings, articles, videos queued up before they are read.
 // Separate from the company plan, which queues companies rather than documents.
 const READING_KEY = "myjournal_reading";
-const blankRead  = () => ({ id:uid(), title:"", kind:"", link:"", company:"", done:false, doneOn:"", createdAt:nowTs(), updatedAt:nowTs() });
+const blankRead  = () => ({ id:uid(), title:"", kind:"", link:"", company:"", notes:[], start:"", done:false, doneOn:"", createdAt:nowTs(), updatedAt:nowTs() });
 const loadReading = () => { try{const r=localStorage.getItem(READING_KEY);if(r){const d=JSON.parse(r);if(Array.isArray(d))return d;}}catch{} return []; };
 const saveReading = r => localStorage.setItem(READING_KEY, JSON.stringify(r));
 const REPORT_DEPTHS = [["new","New"],["deep","Deep dive"]];
 // What a note came from. Filings first, since those are the bulk of it.
 const SOURCE_KINDS = [
   ["10-K","10-K"], ["10-Q","10-Q"], ["8-K","8-K"], ["proxy","Proxy (DEF 14A)"],
-  ["s-1","S-1 / prospectus"], ["transcript","Earnings call"], ["deck","Investor deck"],
+  ["s-1","S-1 / prospectus"], ["letter","Shareholder letter"],
+  ["transcript","Earnings call"], ["deck","Investor deck"],
   ["article","Article"], ["video","Video"], ["podcast","Podcast"], ["book","Book"], ["other","Other"],
 ];
 const kindLabel = k => (SOURCE_KINDS.find(([v])=>v===k)||[])[1] || "";
@@ -1113,6 +1114,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .rn-link{flex:1;min-width:90px;border:none;outline:none;background:transparent;border-bottom:1px solid #eef4ee;padding:1px 0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#7f97b5;transition:border-color .2s;}
 .rn-link:focus{border-color:#5a9a60;}
 .rn-link::placeholder{color:#ccd8cc;}
+.ta-clamp{overflow:hidden;transition:max-height .18s ease;}
+.ta-clamp.on{max-height:150px;}
+.note-more{margin-top:1px;background:none;border:none;padding:2px 0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;font-weight:600;letter-spacing:.3px;color:#9fb0c2;cursor:pointer;transition:color .15s;}
+.note-more:hover{color:#5a7fa8;}
+.reports-view .note-more{color:#8aa890;}
+.reports-view .note-more:hover{color:#4a8a55;}
 .rn-auto{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}
 .rn-chip{display:inline-flex;align-items:center;gap:3px;max-width:100%;padding:3px 10px;border-radius:20px;background:#eef6ef;color:#4a8a55;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;font-weight:600;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background .15s;}
 .rn-chip:hover{background:#dceede;color:#3f7a48;}
@@ -2035,15 +2042,10 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
           <div className="goal-sec-lbl" style={{marginTop:16}}>Notes</div>
           <div className="gnote-list">
             {notes.map(nt=>(
-              <div key={nt.id} className="gnote">
-                <div className="gnote-head">
-                  <span className="gnote-ts">{nt.ts?fmtTime(nt.ts):"earlier"}{nt.ts?` · ${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric"})}`:""}</span>
-                  <button className="goal-btn del" onClick={()=>delNote(nt.id)}>×</button>
-                </div>
-                <textarea className="gnote-ta" value={nt.text} placeholder="A note on this goal…"
-                  onChange={e=>{updNote(nt.id,e.target.value);growTA(e.target);}}
-                  onFocus={e=>growTA(e.target)} ref={growTA}/>
-              </div>
+              <NoteBlock key={nt.id} note={nt} simple placeholder="A note on this goal…"
+                dateLabel={nt.ts?`${fmtTime(nt.ts)} · ${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric"})}`:"earlier"}
+                onChange={patch=>updNote(nt.id,patch.text)}
+                onDelete={()=>delNote(nt.id)}/>
             ))}
           </div>
           <button className="goal-add-step" onClick={addNote}>
@@ -2648,28 +2650,47 @@ const ReportSpan = memo(({ r }) => {
   );
 });
 
-const ResearchNote = memo(({ note, dateLabel, autoFocus, onChange, onDelete }) => {
+// Long enough that it would push everything below it off the screen. Measured
+// from the text rather than the rendered box so it doesn't depend on layout.
+const NOTE_LONG = t => (t||"").length > 320 || (t||"").split("\n").length > 7;
+
+const NoteBlock = memo(({ note, dateLabel, autoFocus, simple, placeholder, onChange, onDelete }) => {
   const href = safeUrl(note.link);
   // Links found in the note itself, minus whatever the field already opens.
   const found = linksIn(note.text).filter(u=>safeUrl(u)!==href);
+  // Long notes start capped so a list of them stays scannable. Focusing one
+  // opens it — clicking in to edit shouldn't leave you typing into a clipped
+  // box — and it then stays open until it is deliberately collapsed again.
+  const [open, setOpen] = useState(false);
+  const long = NOTE_LONG(note.text);
+  const clamped = long && !open;
   return (
     <div className="gnote">
       <div className="rn-bar">
         <span className="rn-when">{dateLabel}</span>
-        <select className="rn-kind" value={note.kind||""} title="What is this from?"
-          onChange={e=>onChange({kind:e.target.value})}>
-          <option value="">Source…</option>
-          {SOURCE_KINDS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
-        </select>
-        <input className="rn-link" value={note.link||""} placeholder="Paste a link…"
-          onChange={e=>onChange({link:e.target.value})}/>
-        {href&&<a className="rn-open" href={href} target="_blank" rel="noreferrer noopener" title={href}>↗</a>}
+        {!simple&&<>
+          <select className="rn-kind" value={note.kind||""} title="What is this from?"
+            onChange={e=>onChange({kind:e.target.value})}>
+            <option value="">Source…</option>
+            {SOURCE_KINDS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+          </select>
+          <input className="rn-link" value={note.link||""} placeholder="Paste a link…"
+            onChange={e=>onChange({link:e.target.value})}/>
+          {href&&<a className="rn-open" href={href} target="_blank" rel="noreferrer noopener" title={href}>↗</a>}
+        </>}
         <button className="goal-btn del" onClick={onDelete}>×</button>
       </div>
-      <textarea className="gnote-ta" value={note.text} autoFocus={autoFocus}
-        placeholder="What stood out? Numbers, risks, questions… paste a link and it becomes clickable"
-        onChange={e=>{onChange({text:e.target.value});growTA(e.target);}}
-        onFocus={e=>growTA(e.target)} ref={growTA}/>
+      <div className={`ta-clamp${clamped?" on":""}`}>
+        <textarea className="gnote-ta" value={note.text} autoFocus={autoFocus}
+          placeholder={placeholder||"What stood out? Numbers, risks, questions… paste a link and it becomes clickable"}
+          onChange={e=>{onChange({text:e.target.value});growTA(e.target);}}
+          onFocus={e=>{setOpen(true);growTA(e.target);}} ref={growTA}/>
+      </div>
+      {long&&(
+        <button className="note-more" onClick={()=>setOpen(o=>!o)}>
+          {open?"▲ Show less":"▼ Show more"}
+        </button>
+      )}
       {found.length>0&&(
         <div className="rn-auto">
           {found.map(u=>(
@@ -2690,7 +2711,7 @@ const ReportNotes = memo(({ r, open, onSet }) => {
     <div className="rp-notes">
       <div className="gnote-list">
         {notes.map(nt=>(
-          <ResearchNote key={nt.id} note={nt}
+          <NoteBlock key={nt.id} note={nt}
             dateLabel={nt.ts?`${fmtTime(nt.ts)} · ${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric"})}`:"earlier"}
             onChange={patch=>onSet({notes:notes.map(x=>x.id===nt.id?{...x,...patch}:x)})}
             onDelete={()=>onSet({notes:notes.filter(x=>x.id!==nt.id)})}/>
@@ -2750,7 +2771,7 @@ const ResearchByCompany = memo(({ reports, newNoteId, onNoteChange, onNoteDelete
 
           {c.notes.map(nt=>(
             <div key={`${nt.entryId}-${nt.id}`} className="rc-note">
-              <ResearchNote note={nt} autoFocus={nt.id===newNoteId}
+              <NoteBlock note={nt} autoFocus={nt.id===newNoteId}
                 dateLabel={nt.ts
                   ? `${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric",year:"numeric"})} · ${fmtTime(nt.ts)}`
                   : nt.entryDate ? fmtDate(nt.entryDate,{month:"short",day:"numeric",year:"numeric"}) : "earlier"}
@@ -2770,6 +2791,7 @@ const ResearchByCompany = memo(({ reports, newNoteId, onNoteChange, onNoteDelete
 
 const ReadingList = memo(({ items, onAdd, onSet, onDelete }) => {
   const [draft, setDraft] = useState("");
+  const [openN, setOpenN] = useState({});
   const submit = ()=>{ const t=draft.trim(); if(!t) return; onAdd(t); setDraft(""); };
   const todo = items.filter(i=>!i.done).sort((a,b)=>(Number(b.createdAt)||0)-(Number(a.createdAt)||0));
   const done = items.filter(i=>i.done).sort((a,b)=>(b.doneOn||"").localeCompare(a.doneOn||""));
@@ -2780,7 +2802,7 @@ const ReadingList = memo(({ items, onAdd, onSet, onDelete }) => {
       <div key={i.id} className={`rp-card${i.done?" read":""}`}>
         <div className={`ck${i.done?" done":""}`}
           title={i.done?"Move back to unread":"Mark as read today"}
-          onClick={()=>onSet(i.id, i.done?{done:false,doneOn:""}:{done:true,doneOn:todayKey()})}>{i.done&&"✓"}</div>
+          onClick={()=>onSet(i.id, i.done?{done:false,doneOn:""}:{done:true,doneOn:i.doneOn||todayKey()})}>{i.done&&"✓"}</div>
         <div className="rp-card-main">
           <input className={`rp-co-inp${i.done?" struck":""}`} value={i.title} placeholder="What to read…"
             onChange={e=>onSet(i.id,{title:e.target.value})}/>
@@ -2795,8 +2817,37 @@ const ReadingList = memo(({ items, onAdd, onSet, onDelete }) => {
             {href&&<a className="rn-open" href={href} target="_blank" rel="noreferrer noopener" title={href}>↗</a>}
             <input className="rl-co" value={i.company||""} placeholder="Company (optional)"
               onChange={e=>onSet(i.id,{company:e.target.value})}/>
-            {i.done&&i.doneOn&&<span className="span-lbl">read {fmtDate(i.doneOn,{month:"short",day:"numeric"})}</span>}
           </div>
+          <div className="rp-meta">
+            <span className="step-dlbl">start</span>
+            <input className="rp-date" type="date" value={i.start||""} title="Started reading"
+              onChange={e=>onSet(i.id,{start:e.target.value})}/>
+            <span className="step-dlbl">finished</span>
+            <input className="rp-date" type="date" value={i.doneOn||""} title="Finished reading"
+              onChange={e=>onSet(i.id,{doneOn:e.target.value, done:!!e.target.value})}/>
+            <button className={`rp-chip${openN[i.id]?" on":""}`} title="Notes"
+              onClick={()=>setOpenN(o=>({...o,[i.id]:!o[i.id]}))}>
+              ✎{(i.notes||[]).length?` ${i.notes.length}`:""}
+            </button>
+          </div>
+          {/* reuses the research readout: elapsed while reading, duration once finished */}
+          <ReportSpan r={{start:i.start, status:i.done?"read":"planned", readOn:i.doneOn, due:""}}/>
+          {openN[i.id]&&(
+            <div className="rp-notes">
+              <div className="gnote-list">
+                {(i.notes||[]).map(nt=>(
+                  <NoteBlock key={nt.id} note={nt} simple
+                    dateLabel={nt.ts?`${fmtTime(nt.ts)} · ${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric"})}`:"earlier"}
+                    onChange={patch=>onSet(i.id,{notes:(i.notes||[]).map(x=>x.id===nt.id?{...x,...patch}:x)})}
+                    onDelete={()=>onSet(i.id,{notes:(i.notes||[]).filter(x=>x.id!==nt.id)})}/>
+                ))}
+              </div>
+              <button className="goal-add-step"
+                onClick={()=>onSet(i.id,{notes:[...(i.notes||[]),{id:uid(),ts:nowTs(),text:""}]})}>
+                {(i.notes||[]).length===0?"+ Add a note…":`+ Add another note · ${fmtTime(nowTs())}`}
+              </button>
+            </div>
+          )}
         </div>
         <button className="goal-btn del" onClick={()=>onDelete(i.id)}>×</button>
       </div>
