@@ -436,6 +436,13 @@ const linksIn = text => {
   }
   return out;
 };
+// A note or reading item used to hold one link. Anything saved that way is
+// read as a one-item list, so nothing needs migrating up front.
+const linksOf = it => {
+  if(Array.isArray(it?.links)) return it.links.filter(Boolean);
+  const one=(it?.link||"").trim();
+  return one ? [one] : [];
+};
 const hostOf = u => { try{ return new URL(safeUrl(u)).hostname.replace(/^www\./,""); }catch{ return u; } };
 // A pasted link is put in an href, so anything that isn't plainly http(s) is
 // dropped rather than trusted — javascript: and data: URLs run on click.
@@ -1120,6 +1127,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .note-more:hover{color:#5a7fa8;}
 .reports-view .note-more{color:#8aa890;}
 .reports-view .note-more:hover{color:#4a8a55;}
+.rn-linkchip{display:inline-flex;align-items:center;gap:1px;padding:1px 3px 1px 9px;border-radius:20px;background:#eef6ef;flex-shrink:0;max-width:100%;}
+.rn-linkchip a{color:#4a8a55;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;font-weight:600;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.rn-linkchip a:hover{color:#3f7a48;}
 .rn-auto{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}
 .rn-chip{display:inline-flex;align-items:center;gap:3px;max-width:100%;padding:3px 10px;border-radius:20px;background:#eef6ef;color:#4a8a55;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;font-weight:600;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background .15s;}
 .rn-chip:hover{background:#dceede;color:#3f7a48;}
@@ -2654,10 +2664,42 @@ const ReportSpan = memo(({ r }) => {
 // from the text rather than the rendered box so it doesn't depend on layout.
 const NOTE_LONG = t => (t||"").length > 320 || (t||"").split("\n").length > 7;
 
+// Paste a link and it becomes a chip; the box clears for the next one. Editing
+// a URL in place is rare enough that removing and re-pasting is the simpler
+// affordance, and it keeps a row of several links compact.
+const LinkField = memo(({ item, onSet }) => {
+  const [draft, setDraft] = useState("");
+  const links = linksOf(item);
+  const commit = () => {
+    const v = draft.trim();
+    // Blur commits too, so require something link-shaped: tabbing away from a
+    // half-typed thought shouldn't leave a broken chip behind.
+    if(!v || !v.includes(".") || links.includes(v)) return;
+    onSet({ links:[...links, v], link:"" });
+    setDraft("");
+  };
+  return (
+    <>
+      <input className="rn-link" value={draft}
+        placeholder={links.length?"Add another link…":"Paste a link…"}
+        onChange={e=>setDraft(e.target.value)}
+        onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();commit();}}}
+        onBlur={commit}/>
+      {links.map(u=>(
+        <span key={u} className="rn-linkchip">
+          <a href={safeUrl(u)} target="_blank" rel="noreferrer noopener" title={u}>↗ {hostOf(u)}</a>
+          <button className="goal-btn del" title="Remove this link"
+            onClick={()=>onSet({ links:links.filter(x=>x!==u), link:"" })}>×</button>
+        </span>
+      ))}
+    </>
+  );
+});
+
 const NoteBlock = memo(({ note, dateLabel, autoFocus, simple, placeholder, onChange, onDelete }) => {
-  const href = safeUrl(note.link);
-  // Links found in the note itself, minus whatever the field already opens.
-  const found = linksIn(note.text).filter(u=>safeUrl(u)!==href);
+  // Links found in the note itself, minus any already listed as sources.
+  const listed = new Set(linksOf(note).map(safeUrl));
+  const found = linksIn(note.text).filter(u=>!listed.has(safeUrl(u)));
   // Long notes start capped so a list of them stays scannable. Focusing one
   // opens it — clicking in to edit shouldn't leave you typing into a clipped
   // box — and it then stays open until it is deliberately collapsed again.
@@ -2674,9 +2716,7 @@ const NoteBlock = memo(({ note, dateLabel, autoFocus, simple, placeholder, onCha
             <option value="">Source…</option>
             {SOURCE_KINDS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
           </select>
-          <input className="rn-link" value={note.link||""} placeholder="Paste a link…"
-            onChange={e=>onChange({link:e.target.value})}/>
-          {href&&<a className="rn-open" href={href} target="_blank" rel="noreferrer noopener" title={href}>↗</a>}
+          <LinkField item={note} onSet={onChange}/>
         </>}
         <button className="goal-btn del" onClick={onDelete}>×</button>
       </div>
@@ -2797,7 +2837,6 @@ const ReadingList = memo(({ items, onAdd, onSet, onDelete }) => {
   const done = items.filter(i=>i.done).sort((a,b)=>(b.doneOn||"").localeCompare(a.doneOn||""));
 
   const row = i => {
-    const href = safeUrl(i.link);
     return (
       <div key={i.id} className={`rp-card${i.done?" read":""}`}>
         <div className={`ck${i.done?" done":""}`}
@@ -2812,9 +2851,7 @@ const ReadingList = memo(({ items, onAdd, onSet, onDelete }) => {
               <option value="">Type…</option>
               {SOURCE_KINDS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
             </select>
-            <input className="rn-link" value={i.link||""} placeholder="Paste a link…"
-              onChange={e=>onSet(i.id,{link:e.target.value})}/>
-            {href&&<a className="rn-open" href={href} target="_blank" rel="noreferrer noopener" title={href}>↗</a>}
+            <LinkField item={i} onSet={patch=>onSet(i.id,patch)}/>
             <input className="rl-co" value={i.company||""} placeholder="Company (optional)"
               onChange={e=>onSet(i.id,{company:e.target.value})}/>
           </div>
