@@ -1114,6 +1114,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .rn-link{flex:1;min-width:90px;border:none;outline:none;background:transparent;border-bottom:1px solid #eef4ee;padding:1px 0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#7f97b5;transition:border-color .2s;}
 .rn-link:focus{border-color:#5a9a60;}
 .rn-link::placeholder{color:#ccd8cc;}
+.ta-clamp{overflow:hidden;transition:max-height .18s ease;}
+.ta-clamp.on{max-height:150px;}
+.note-more{margin-top:1px;background:none;border:none;padding:2px 0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;font-weight:600;letter-spacing:.3px;color:#9fb0c2;cursor:pointer;transition:color .15s;}
+.note-more:hover{color:#5a7fa8;}
+.reports-view .note-more{color:#8aa890;}
+.reports-view .note-more:hover{color:#4a8a55;}
 .rn-auto{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}
 .rn-chip{display:inline-flex;align-items:center;gap:3px;max-width:100%;padding:3px 10px;border-radius:20px;background:#eef6ef;color:#4a8a55;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;font-weight:600;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background .15s;}
 .rn-chip:hover{background:#dceede;color:#3f7a48;}
@@ -2036,15 +2042,10 @@ const GoalCard = memo(({ goal, collapsed, canUp, canDown, onToggle, onChange, on
           <div className="goal-sec-lbl" style={{marginTop:16}}>Notes</div>
           <div className="gnote-list">
             {notes.map(nt=>(
-              <div key={nt.id} className="gnote">
-                <div className="gnote-head">
-                  <span className="gnote-ts">{nt.ts?fmtTime(nt.ts):"earlier"}{nt.ts?` · ${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric"})}`:""}</span>
-                  <button className="goal-btn del" onClick={()=>delNote(nt.id)}>×</button>
-                </div>
-                <textarea className="gnote-ta" value={nt.text} placeholder="A note on this goal…"
-                  onChange={e=>{updNote(nt.id,e.target.value);growTA(e.target);}}
-                  onFocus={e=>growTA(e.target)} ref={growTA}/>
-              </div>
+              <NoteBlock key={nt.id} note={nt} simple placeholder="A note on this goal…"
+                dateLabel={nt.ts?`${fmtTime(nt.ts)} · ${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric"})}`:"earlier"}
+                onChange={patch=>updNote(nt.id,patch.text)}
+                onDelete={()=>delNote(nt.id)}/>
             ))}
           </div>
           <button className="goal-add-step" onClick={addNote}>
@@ -2649,10 +2650,20 @@ const ReportSpan = memo(({ r }) => {
   );
 });
 
-const ResearchNote = memo(({ note, dateLabel, autoFocus, simple, onChange, onDelete }) => {
+// Long enough that it would push everything below it off the screen. Measured
+// from the text rather than the rendered box so it doesn't depend on layout.
+const NOTE_LONG = t => (t||"").length > 320 || (t||"").split("\n").length > 7;
+
+const NoteBlock = memo(({ note, dateLabel, autoFocus, simple, placeholder, onChange, onDelete }) => {
   const href = safeUrl(note.link);
   // Links found in the note itself, minus whatever the field already opens.
   const found = linksIn(note.text).filter(u=>safeUrl(u)!==href);
+  // Long notes start capped so a list of them stays scannable. Focusing one
+  // opens it — clicking in to edit shouldn't leave you typing into a clipped
+  // box — and it then stays open until it is deliberately collapsed again.
+  const [open, setOpen] = useState(false);
+  const long = NOTE_LONG(note.text);
+  const clamped = long && !open;
   return (
     <div className="gnote">
       <div className="rn-bar">
@@ -2669,10 +2680,17 @@ const ResearchNote = memo(({ note, dateLabel, autoFocus, simple, onChange, onDel
         </>}
         <button className="goal-btn del" onClick={onDelete}>×</button>
       </div>
-      <textarea className="gnote-ta" value={note.text} autoFocus={autoFocus}
-        placeholder="What stood out? Numbers, risks, questions… paste a link and it becomes clickable"
-        onChange={e=>{onChange({text:e.target.value});growTA(e.target);}}
-        onFocus={e=>growTA(e.target)} ref={growTA}/>
+      <div className={`ta-clamp${clamped?" on":""}`}>
+        <textarea className="gnote-ta" value={note.text} autoFocus={autoFocus}
+          placeholder={placeholder||"What stood out? Numbers, risks, questions… paste a link and it becomes clickable"}
+          onChange={e=>{onChange({text:e.target.value});growTA(e.target);}}
+          onFocus={e=>{setOpen(true);growTA(e.target);}} ref={growTA}/>
+      </div>
+      {long&&(
+        <button className="note-more" onClick={()=>setOpen(o=>!o)}>
+          {open?"▲ Show less":"▼ Show more"}
+        </button>
+      )}
       {found.length>0&&(
         <div className="rn-auto">
           {found.map(u=>(
@@ -2693,7 +2711,7 @@ const ReportNotes = memo(({ r, open, onSet }) => {
     <div className="rp-notes">
       <div className="gnote-list">
         {notes.map(nt=>(
-          <ResearchNote key={nt.id} note={nt}
+          <NoteBlock key={nt.id} note={nt}
             dateLabel={nt.ts?`${fmtTime(nt.ts)} · ${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric"})}`:"earlier"}
             onChange={patch=>onSet({notes:notes.map(x=>x.id===nt.id?{...x,...patch}:x)})}
             onDelete={()=>onSet({notes:notes.filter(x=>x.id!==nt.id)})}/>
@@ -2753,7 +2771,7 @@ const ResearchByCompany = memo(({ reports, newNoteId, onNoteChange, onNoteDelete
 
           {c.notes.map(nt=>(
             <div key={`${nt.entryId}-${nt.id}`} className="rc-note">
-              <ResearchNote note={nt} autoFocus={nt.id===newNoteId}
+              <NoteBlock note={nt} autoFocus={nt.id===newNoteId}
                 dateLabel={nt.ts
                   ? `${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric",year:"numeric"})} · ${fmtTime(nt.ts)}`
                   : nt.entryDate ? fmtDate(nt.entryDate,{month:"short",day:"numeric",year:"numeric"}) : "earlier"}
@@ -2818,7 +2836,7 @@ const ReadingList = memo(({ items, onAdd, onSet, onDelete }) => {
             <div className="rp-notes">
               <div className="gnote-list">
                 {(i.notes||[]).map(nt=>(
-                  <ResearchNote key={nt.id} note={nt} simple
+                  <NoteBlock key={nt.id} note={nt} simple
                     dateLabel={nt.ts?`${fmtTime(nt.ts)} · ${fmtDate(dateKey(new Date(nt.ts)),{month:"short",day:"numeric"})}`:"earlier"}
                     onChange={patch=>onSet(i.id,{notes:(i.notes||[]).map(x=>x.id===nt.id?{...x,...patch}:x)})}
                     onDelete={()=>onSet(i.id,{notes:(i.notes||[]).filter(x=>x.id!==nt.id)})}/>
