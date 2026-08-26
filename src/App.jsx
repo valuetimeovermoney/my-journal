@@ -416,6 +416,20 @@ const SOURCE_KINDS = [
   ["article","Article"], ["video","Video"], ["podcast","Podcast"], ["book","Book"], ["other","Other"],
 ];
 const kindLabel = k => (SOURCE_KINDS.find(([v])=>v===k)||[])[1] || "";
+// Only http(s) and www. — anything looser turns ordinary prose like "Inc." into
+// a link. Trailing punctuation and closing brackets belong to the sentence, not
+// the URL, so they get trimmed back off.
+const URL_RE = /(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
+const linksIn = text => {
+  const out=[], seen=new Set();
+  for(const m of String(text||"").matchAll(URL_RE)){
+    const u=m[0].replace(/[.,;:!?)\]}>]+$/,"");
+    if(!u || seen.has(u)) continue;
+    seen.add(u); out.push(u);
+  }
+  return out;
+};
+const hostOf = u => { try{ return new URL(safeUrl(u)).hostname.replace(/^www\./,""); }catch{ return u; } };
 // A pasted link is put in an href, so anything that isn't plainly http(s) is
 // dropped rather than trusted — javascript: and data: URLs run on click.
 // A bare domain gets https:// so "apple.com" still works.
@@ -1087,6 +1101,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .rn-link{flex:1;min-width:90px;border:none;outline:none;background:transparent;border-bottom:1px solid #eef4ee;padding:1px 0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:11px;color:#7f97b5;transition:border-color .2s;}
 .rn-link:focus{border-color:#5a9a60;}
 .rn-link::placeholder{color:#ccd8cc;}
+.rn-auto{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}
+.rn-chip{display:inline-flex;align-items:center;gap:3px;max-width:100%;padding:3px 10px;border-radius:20px;background:#eef6ef;color:#4a8a55;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;font-weight:600;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background .15s;}
+.rn-chip:hover{background:#dceede;color:#3f7a48;}
 .rn-open{flex-shrink:0;text-decoration:none;color:#5a9a60;font-size:13px;padding:0 2px;line-height:1;}
 .rn-open:hover{color:#3f7a48;}
 .rc-kind{padding:1px 8px;border-radius:20px;background:#eef6ef;color:#6f9c77;font-size:10px;font-weight:600;}
@@ -2617,6 +2634,8 @@ const ReportSpan = memo(({ r }) => {
 
 const ResearchNote = memo(({ note, dateLabel, autoFocus, onChange, onDelete }) => {
   const href = safeUrl(note.link);
+  // Links found in the note itself, minus whatever the field already opens.
+  const found = linksIn(note.text).filter(u=>safeUrl(u)!==href);
   return (
     <div className="gnote">
       <div className="rn-bar">
@@ -2632,9 +2651,18 @@ const ResearchNote = memo(({ note, dateLabel, autoFocus, onChange, onDelete }) =
         <button className="goal-btn del" onClick={onDelete}>×</button>
       </div>
       <textarea className="gnote-ta" value={note.text} autoFocus={autoFocus}
-        placeholder="What stood out? Numbers, risks, questions…"
+        placeholder="What stood out? Numbers, risks, questions… paste a link and it becomes clickable"
         onChange={e=>{onChange({text:e.target.value});growTA(e.target);}}
         onFocus={e=>growTA(e.target)} ref={growTA}/>
+      {found.length>0&&(
+        <div className="rn-auto">
+          {found.map(u=>(
+            <a key={u} className="rn-chip" href={safeUrl(u)} target="_blank" rel="noreferrer noopener" title={u}>
+              ↗ {hostOf(u)}
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 });
