@@ -436,6 +436,13 @@ const linksIn = text => {
   }
   return out;
 };
+// A note or reading item used to hold one link. Anything saved that way is
+// read as a one-item list, so nothing needs migrating up front.
+const linksOf = it => {
+  if(Array.isArray(it?.links)) return it.links.filter(Boolean);
+  const one=(it?.link||"").trim();
+  return one ? [one] : [];
+};
 const hostOf = u => { try{ return new URL(safeUrl(u)).hostname.replace(/^www\./,""); }catch{ return u; } };
 // A pasted link is put in an href, so anything that isn't plainly http(s) is
 // dropped rather than trusted — javascript: and data: URLs run on click.
@@ -510,6 +517,7 @@ const getLast7 = (habitId, today) => {
 };
 
 const blankEntry = () => ({
+  title:            "",
   todos:            [{text:"",done:false}],
   diaryBlocks:      [],
   notes:            [],
@@ -524,6 +532,7 @@ const blankEntry = () => ({
 const migrate = p => {
   if (!p || typeof p !== "object") return blankEntry();
   // Ensure all array fields are actually arrays (guard against corrupted/old data)
+  if (typeof p.title !== "string")     p.title         = "";
   if (!Array.isArray(p.todos))         p.todos         = [{text:"",done:false}];
   if (!Array.isArray(p.diaryBlocks))   p.diaryBlocks   = [];
   if (!Array.isArray(p.notes))         p.notes         = [];
@@ -1120,6 +1129,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .note-more:hover{color:#5a7fa8;}
 .reports-view .note-more{color:#8aa890;}
 .reports-view .note-more:hover{color:#4a8a55;}
+.rn-linkchip{display:inline-flex;align-items:center;gap:1px;padding:1px 3px 1px 9px;border-radius:20px;background:#eef6ef;flex-shrink:0;max-width:100%;}
+.rn-linkchip a{color:#4a8a55;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;font-weight:600;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.rn-linkchip a:hover{color:#3f7a48;}
 .rn-auto{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}
 .rn-chip{display:inline-flex;align-items:center;gap:3px;max-width:100%;padding:3px 10px;border-radius:20px;background:#eef6ef;color:#4a8a55;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-size:10px;font-weight:600;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background .15s;}
 .rn-chip:hover{background:#dceede;color:#3f7a48;}
@@ -1282,6 +1294,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
 .ref-ta:focus{border-color:#9bafc030;}
 .ref-ta::placeholder{color:#ccc;}
 
+/* ── day title ── */
+.day-title{width:100%;max-width:520px;margin-top:10px;border:none;outline:none;background:transparent;border-bottom:1.5px solid #ece5da;padding:4px 0;font-family:'Playfair Display',serif;font-style:italic;font-size:16px;color:#7a6a52;transition:border-color .2s;}
+.day-title:focus{border-color:#C8A96E;}
+.day-title::placeholder{color:#d8d0c4;font-style:italic;}
+.day-title-ro{font-family:'Playfair Display',serif;font-style:italic;font-size:17px;color:#C8A96E;margin-top:6px;}
+.sb-eprev.titled{color:#9a8a6a;font-style:italic;}
+
+/* ── journal view ── */
+.journal-view{padding:28px 52px 80px;max-width:760px;}
+.jv-day{background:white;border-radius:10px;padding:15px 18px;margin-bottom:13px;border:1.5px solid #efe8dc;}
+.jv-day.is-today{border-color:#C8A96E60;}
+.jv-hd{display:flex;align-items:baseline;gap:10px;margin-bottom:2px;}
+.jv-date{font-size:11px;color:#C8A96E;font-weight:600;text-transform:uppercase;letter-spacing:1px;cursor:pointer;}
+.jv-date:hover{text-decoration:underline;}
+.jv-words{font-size:10px;color:#ccc;margin-left:auto;}
+.jv-title{width:100%;border:none;outline:none;background:transparent;font-family:'Playfair Display',serif;font-size:17px;font-weight:600;color:#1a1a1a;padding:2px 0 6px;}
+.jv-title::placeholder{color:#d5cec2;font-weight:400;font-style:italic;}
+.jv-block{margin-top:8px;padding-left:11px;border-left:2px solid #f0e8da;}
+.jv-ts{display:block;font-size:10px;color:#C8A96E;font-weight:500;margin-bottom:2px;}
+.jv-text{font-family:'Playfair Display',serif;font-size:14px;line-height:1.75;color:#444;white-space:pre-wrap;}
+
 /* ── focus view ── */
 .focus-view{padding:28px 52px 80px;max-width:760px;}
 .focus-date-hd{display:flex;align-items:baseline;gap:10px;margin:22px 0 8px;}
@@ -1390,7 +1423,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .topbar{display:flex;}
   .desk-nav{display:none;}
   .bot-nav{display:block;}
-  .pg-head,.insp-bar,.loc-bar,.stats-row,.content,.past-wrap,.month-view,.search-view,.export-view,.ideas-view,.habits-view,.reading-view,.goals-view,.reports-view{padding-left:18px;padding-right:18px;}
+  .pg-head,.insp-bar,.loc-bar,.stats-row,.content,.past-wrap,.month-view,.search-view,.export-view,.ideas-view,.habits-view,.reading-view,.goals-view,.reports-view,.journal-view{padding-left:18px;padding-right:18px;}
   .insp-bar,.loc-bar{margin-left:18px;margin-right:18px;}
   .pg-head{padding-top:18px;}
   .pg-title{font-size:26px;}
@@ -1410,13 +1443,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display"
   .step-date.set{width:92px;}
 }
 /* keep the 9-item bottom nav from overflowing on narrow phones */
-@media(max-width:480px){
-  .bn-item{flex:1;min-width:0;padding:4px 0;font-size:8px;letter-spacing:.1px;gap:2px;}
+@media(max-width:520px){
+  .bn-item{flex:1;min-width:0;padding:4px 0;font-size:8px;letter-spacing:0;gap:2px;overflow:hidden;}
+  .bn-item>:last-child{max-width:100%;overflow:hidden;text-overflow:clip;white-space:nowrap;}
   .bn-ico{font-size:15px;}
 }
-@media(max-width:360px){
+@media(max-width:400px){
   .bn-item{font-size:7px;}
-  .bn-ico{font-size:14px;}
+  .bn-ico{font-size:13px;}
 }
 `;
 
@@ -1436,7 +1470,9 @@ const Sidebar = memo(({ open, entries, selectedDate, today, onSelect, onToday, l
           <div className={`sb-edate${e.date===today?" today":""}`}>
             {e.date===today?"Today":fmtDate(e.date,{month:"short",day:"numeric",year:"numeric"})}
           </div>
-          {e.diaryBlocks?.[0]?.text&&<div className="sb-eprev">{e.diaryBlocks[0].text.slice(0,44)}…</div>}
+          {e.title?.trim()
+            ? <div className="sb-eprev titled">{e.title}</div>
+            : e.diaryBlocks?.[0]?.text&&<div className="sb-eprev">{e.diaryBlocks[0].text.slice(0,44)}…</div>}
         </div>
       ))}
     </div>
@@ -1702,15 +1738,16 @@ const DailyHabits = memo(({ checks, onChange, refreshKey }) => {
 });
 
 // ─── HabitsView (Habits tab — manage + streaks) ───────────────────────────────
-const HabitsView = memo(({ today, refreshKey }) => {
+const HabitsView = memo(({ today, refreshKey, onChanged }) => {
   const [habits, setHabits] = useState(()=>loadHabits());
   const [tick,   setTick]   = useState(0);
 
   useEffect(()=>setHabits(loadHabits()),[refreshKey]);
 
-  const addHabit = ()=>{ const h=[...habits,blankHabit()]; setHabits(h); saveHabits(h); };
-  const updHabit = (id,name)=>{ const h=habits.map(x=>x.id===id?{...x,name}:x); setHabits(h); saveHabits(h); };
-  const delHabit = id=>{ const h=habits.filter(x=>x.id!==id); setHabits(h); saveHabits(h); };
+  const commit = h => { setHabits(h); saveHabits(h); onChanged&&onChanged(); };
+  const addHabit = ()=>commit([...habits,blankHabit()]);
+  const updHabit = (id,name)=>commit(habits.map(x=>x.id===id?{...x,name}:x));
+  const delHabit = id=>commit(habits.filter(x=>x.id!==id));
 
   const named = habits.filter(h=>h.name.trim());
 
@@ -2654,10 +2691,42 @@ const ReportSpan = memo(({ r }) => {
 // from the text rather than the rendered box so it doesn't depend on layout.
 const NOTE_LONG = t => (t||"").length > 320 || (t||"").split("\n").length > 7;
 
+// Paste a link and it becomes a chip; the box clears for the next one. Editing
+// a URL in place is rare enough that removing and re-pasting is the simpler
+// affordance, and it keeps a row of several links compact.
+const LinkField = memo(({ item, onSet }) => {
+  const [draft, setDraft] = useState("");
+  const links = linksOf(item);
+  const commit = () => {
+    const v = draft.trim();
+    // Blur commits too, so require something link-shaped: tabbing away from a
+    // half-typed thought shouldn't leave a broken chip behind.
+    if(!v || !v.includes(".") || links.includes(v)) return;
+    onSet({ links:[...links, v], link:"" });
+    setDraft("");
+  };
+  return (
+    <>
+      <input className="rn-link" value={draft}
+        placeholder={links.length?"Add another link…":"Paste a link…"}
+        onChange={e=>setDraft(e.target.value)}
+        onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();commit();}}}
+        onBlur={commit}/>
+      {links.map(u=>(
+        <span key={u} className="rn-linkchip">
+          <a href={safeUrl(u)} target="_blank" rel="noreferrer noopener" title={u}>↗ {hostOf(u)}</a>
+          <button className="goal-btn del" title="Remove this link"
+            onClick={()=>onSet({ links:links.filter(x=>x!==u), link:"" })}>×</button>
+        </span>
+      ))}
+    </>
+  );
+});
+
 const NoteBlock = memo(({ note, dateLabel, autoFocus, simple, placeholder, onChange, onDelete }) => {
-  const href = safeUrl(note.link);
-  // Links found in the note itself, minus whatever the field already opens.
-  const found = linksIn(note.text).filter(u=>safeUrl(u)!==href);
+  // Links found in the note itself, minus any already listed as sources.
+  const listed = new Set(linksOf(note).map(safeUrl));
+  const found = linksIn(note.text).filter(u=>!listed.has(safeUrl(u)));
   // Long notes start capped so a list of them stays scannable. Focusing one
   // opens it — clicking in to edit shouldn't leave you typing into a clipped
   // box — and it then stays open until it is deliberately collapsed again.
@@ -2674,9 +2743,7 @@ const NoteBlock = memo(({ note, dateLabel, autoFocus, simple, placeholder, onCha
             <option value="">Source…</option>
             {SOURCE_KINDS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
           </select>
-          <input className="rn-link" value={note.link||""} placeholder="Paste a link…"
-            onChange={e=>onChange({link:e.target.value})}/>
-          {href&&<a className="rn-open" href={href} target="_blank" rel="noreferrer noopener" title={href}>↗</a>}
+          <LinkField item={note} onSet={onChange}/>
         </>}
         <button className="goal-btn del" onClick={onDelete}>×</button>
       </div>
@@ -2797,7 +2864,6 @@ const ReadingList = memo(({ items, onAdd, onSet, onDelete }) => {
   const done = items.filter(i=>i.done).sort((a,b)=>(b.doneOn||"").localeCompare(a.doneOn||""));
 
   const row = i => {
-    const href = safeUrl(i.link);
     return (
       <div key={i.id} className={`rp-card${i.done?" read":""}`}>
         <div className={`ck${i.done?" done":""}`}
@@ -2812,9 +2878,7 @@ const ReadingList = memo(({ items, onAdd, onSet, onDelete }) => {
               <option value="">Type…</option>
               {SOURCE_KINDS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
             </select>
-            <input className="rn-link" value={i.link||""} placeholder="Paste a link…"
-              onChange={e=>onSet(i.id,{link:e.target.value})}/>
-            {href&&<a className="rn-open" href={href} target="_blank" rel="noreferrer noopener" title={href}>↗</a>}
+            <LinkField item={i} onSet={patch=>onSet(i.id,patch)}/>
             <input className="rl-co" value={i.company||""} placeholder="Company (optional)"
               onChange={e=>onSet(i.id,{company:e.target.value})}/>
           </div>
@@ -3249,6 +3313,65 @@ const ReadingView = memo(({ refreshKey, today, onSelectDay, onEntriesChanged }) 
   );
 });
 
+// ─── JournalView (every day you wrote, with a title of its own) ──────────────
+const dayWords = e => (e.diaryBlocks||[]).reduce((n,b)=>n+((b.text||"").trim()?b.text.trim().split(/\s+/).length:0),0);
+
+const JournalView = memo(({ refreshKey, today, onOpenDay }) => {
+  const [tick, setTick] = useState(0);
+
+  const days = useMemo(()=>
+    allEntries()
+      .map(e=>({ date:e.date, title:e.title||"", blocks:(e.diaryBlocks||[]).filter(b=>b.text?.trim()), words:dayWords(e) }))
+      .filter(d=>d.blocks.length>0 || d.title.trim())
+  ,[refreshKey, tick]);
+
+  // Titles are stored on the day itself, so this writes straight through to it.
+  const setTitle = useCallback((date,title)=>{
+    save(date,{...load(date), title});
+    setTick(t=>t+1);
+  },[]);
+
+  const totalWords = days.reduce((n,d)=>n+d.words,0);
+
+  return (
+    <div className="journal-view">
+      <div className="eyebrow">All Entries</div>
+      <h1 className="pg-title">My <em>Journal</em></h1>
+      <p style={{fontSize:13,color:"#aaa",fontWeight:300,marginTop:6,marginBottom:6}}>
+        Every day you wrote, newest first — give each one a title so you can find it again.
+      </p>
+      {days.length>0&&(
+        <p style={{fontSize:12,color:"#C8A96E",marginBottom:20}}>
+          {days.length} day{days.length!==1?"s":""} · {totalWords.toLocaleString()} word{totalWords!==1?"s":""}
+        </p>
+      )}
+
+      {days.length===0&&(
+        <div className="empty" style={{marginTop:16}}>Nothing written yet. Start in today's entry.</div>
+      )}
+
+      {days.map(d=>(
+        <div key={d.date} className={`jv-day${d.date===today?" is-today":""}`}>
+          <div className="jv-hd">
+            <span className="jv-date" onClick={()=>onOpenDay(d.date)} title="Open this day">
+              {d.date===today?"Today":fmtDate(d.date,{weekday:"short",month:"long",day:"numeric",year:"numeric"})}
+            </span>
+            <span className="jv-words">{d.words} word{d.words!==1?"s":""}</span>
+          </div>
+          <input className="jv-title" value={d.title} placeholder="Untitled — name this day…"
+            onChange={e=>setTitle(d.date,e.target.value)}/>
+          {d.blocks.map(b=>(
+            <div key={b.id} className="jv-block">
+              {b.ts&&<span className="jv-ts">{fmtTime(b.ts)}</span>}
+              <span className="jv-text">{b.text}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+});
+
 // ─── FocusView (all todos across all days) ────────────────────────────────────
 const FocusView = memo(({ today, refreshKey, onSelectDay }) => {
   const [localTick, setLocalTick] = useState(0);
@@ -3314,6 +3437,7 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
   const [locSuggestions, setLocSuggestions] = useState([]);
   const locTimerRef = useRef(null);
 
+  const setTitle         = useCallback(title=>setEntry(e=>({...e,title})),[setEntry]);
   const setTodos         = useCallback(todos=>setEntry(e=>({...e,todos})),[setEntry]);
   const setBlocks        = useCallback(diaryBlocks=>setEntry(e=>({...e,diaryBlocks})),[setEntry]);
   const setGrat          = useCallback(gratitude=>setEntry(e=>({...e,gratitude})),[setEntry]);
@@ -3378,6 +3502,7 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
         <div className="pg-head">
           <div className="eyebrow">Past Entry</div>
           <h1 className="pg-title">{fmtDate(selectedDate,{weekday:"long",month:"long",day:"numeric"})}</h1>
+          {entry.title?.trim()&&<div className="day-title-ro">{entry.title}</div>}
           <div className="pg-subtitle">{fmtDate(selectedDate,{year:"numeric"})}</div>
         </div>
         <div className="past-wrap">
@@ -3471,6 +3596,8 @@ const WriteView = memo(({ entry, setEntry, selectedDate, today, isEdit, setEditM
           {isToday?<>What's on your <em>mind?</em></>:fmtDate(selectedDate,{month:"long",day:"numeric"})}
         </h1>
         <div className="pg-subtitle">{fmtDate(selectedDate,{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>
+        <input className="day-title" value={entry.title||""} placeholder="Title this day… (optional)"
+          onChange={e=>setTitle(e.target.value)}/>
       </div>
 
       {isToday&&<InspirationBar/>}
@@ -3757,6 +3884,7 @@ const ExportView = memo(({ entries, onImport, driveStatus, driveLoading, driveCo
 const NAVS = [
   {key:"write",  icon:"✦",  label:"Write"},
   {key:"focus",  icon:"◎",  label:"Focus"},
+  {key:"journal",icon:"❦",  label:"Journal"},
   {key:"goals",  icon:"◈",  label:"Goals"},
   {key:"ideas",  icon:"✧",  label:"Ideas"},
   {key:"reading",icon:"❧",  label:"Books"},
@@ -3778,6 +3906,7 @@ export default function App() {
   const [savedShow,     setSavedShow]   = useState(false);
   const [calMonth,      setCalMonth]    = useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
   const [focusTick,     setFocusTick]   = useState(0);
+  const [journalTick,   setJournalTick] = useState(0);
   const [habitsTick,    setHabitsTick]  = useState(0);
   const [ideasTick,     setIdeasTick]   = useState(0);
   const [readingTick,   setReadingTick] = useState(0);
@@ -3958,8 +4087,9 @@ export default function App() {
     // Flush the debounced save before leaving Write, so views that read straight
     // from localStorage (Books, Focus) never see a stale entry.
     if(tab==="write"&&newTab!=="write"){ clearTimeout(saveTimer.current); save(selDate,entryRef.current); }
-    if(newTab==="write"&&tab!=="write"){ setEntry(load(selDate)); doPullFromDrive(true); }
+    if(newTab==="write"&&tab!=="write"){ setEntry(load(selDate)); setHabitsTick(t=>t+1); doPullFromDrive(true); }
     if(newTab==="focus") setFocusTick(t=>t+1);
+    if(newTab==="journal") setJournalTick(t=>t+1);
     if(newTab==="habits") setHabitsTick(t=>t+1);
     if(newTab==="ideas") setIdeasTick(t=>t+1);
     if(newTab==="reading") setReadingTick(t=>t+1);
@@ -4115,6 +4245,10 @@ export default function App() {
           <div style={{display:tab==="write"?"block":"none"}}>
             <WriteView entry={entry} setEntry={setEntry} selectedDate={selDate} today={today} isEdit={editMode} setEditMode={setEditMode} stats={stats} habitsRefreshKey={habitsTick}/>
           </div>
+          <div style={{display:tab==="journal"?"block":"none"}}>
+            <JournalView refreshKey={journalTick} today={today}
+              onOpenDay={date=>{selectDay(date);switchTab("write");}}/>
+          </div>
           <div style={{display:tab==="focus"?"block":"none"}}>
             <FocusView today={today} refreshKey={focusTick} onSelectDay={date=>{selectDay(date);switchTab("write");}}/>
           </div>
@@ -4139,7 +4273,7 @@ export default function App() {
             <SearchView entries={entries} onSelect={selectDay} active={tab==="search"}/>
           </div>
           <div style={{display:tab==="habits"?"block":"none"}}>
-            <HabitsView today={today} refreshKey={habitsTick}/>
+            <HabitsView today={today} refreshKey={habitsTick} onChanged={()=>setHabitsTick(t=>t+1)}/>
           </div>
           <div style={{display:tab==="export"?"block":"none"}}>
             <ExportView entries={entries} onImport={()=>{setEntries(allEntries());setEntry(load(selDate));}}
